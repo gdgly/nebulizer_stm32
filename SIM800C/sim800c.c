@@ -146,65 +146,93 @@ u8 sim800c_hex2chr(u8 hex)
 void sim800c_unigbk_exchange(u8 *src,u8 *dst,u8 mode)
 {
 }
-//////////////////////////////////////////////////////////////////////////////////////////
-//拨号测试部分代码
 
-//sim800C拨号测试
-//用于拨打电话和接听电话
-//返回值:0,正常
-//其他,错误代码
-u8 sim800c_call_test(void)
-{
-	return 0;
-}
-////////////////////////////////////////////////////////////////////////////////////////////// 
-//短信测试部分代码
 
-//SIM800C读短信测试
-void sim800c_sms_read_test(void)
-{ 
-  return;
-}
-//测试短信发送内容(70个字[UCS2的时候,1个字符/数字都算1个字])
-const u8* sim800c_test_msg="您好，这是一条测试短信，由ATK-SIM800C GSM模块发送，模块购买地址:http://eboard.taobao.com，谢谢支持！";
-//SIM800C发短信测试 
-void sim800c_sms_send_test(void)
-{
 
-} 
-
-//sim800C短信测试
-//用于读短信或者发短信
-//返回值:0,正常
-//    其他,错误代码
-u8 sim800c_sms_test(void)
-{
-  return 0;
-} 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 //GPRS测试部分代码
 
-const u8 *modetbl[2]={"TCP","UDP"};//连接模式
-//tcp/udp测试
-//带心跳功能,以维持连接
-//mode:0:TCP测试;1,UDP测试)
-//ipaddr:ip地址
-//port:端口 
-void sim800c_tcpudp_test(u8 mode,u8* ipaddr,u8* port)
-{ 
 
-}
-//gprs测试主界面
-void sim800c_gprs_ui(void)
-{
-
-} 
 //sim800C GPRS测试
 //用于测试TCP/UDP连接
 //返回值:0,正常
 //其他,错误代码
-u8 sim800c_gprs_test(void)
+u8 sim800c_gprs_tcp(u8* content)
 {
+	u8 ret = 1;
+	u8 *p1, *p2;
+	u8 test[4] = {0x55, 0xaa, 0x5a, 0xa5};
+	printf("sim8ooc_gprs_tcp \r\n");
+	
+	if(sim800c_send_cmd("AT+CGCLASS=\"B\"","OK",1000)){
+		printf("cgclass fail \r\n");
+		return 1;
+  }
+	
+	if(sim800c_send_cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",1000)){
+		printf("cgdcont fail \r\n");
+		return 2;
+	}
+	
+	if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500)){
+	   p1=(u8*)strstr((const char*)(USART2_RX_BUF),":");
+		 p2 = (u8 *)strstr((const char*)(USART2_RX_BUF),"1");
+		 if(p2 == 0){
+		    printf("gprs is not attach \r\n");
+			  if(sim800c_send_cmd("AT+CGATT=1","OK",500)){
+					return 3;					//附着GPRS业务
+				}else{
+				  printf("gprs reconnect ok \r\n");
+				}
+		 }else{
+		   printf("gprs already connect \r\n");
+		 }
+	}
+		
+	if(sim800c_send_cmd("AT+CLPORT=\"TCP\",\"2000\"","OK",1000)){
+	  printf("clport fail \r\n");
+    return 4;		 
+	}
+	
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
+	  printf("connect fail \r\n");
+    return 4;		 
+	}else {
+	  printf("connect ok\r\n");
+	}
+	
+	if(sim800c_send_cmd("AT+CIPSEND",">",500)==0)		//发送数据
+  { 
+ 				//printf("CIPSEND DATA:%s\r\n",p1);	 			//发送数据打印到串口
+    //u2_printf("%s\r\n","fuck you again");
+		u2_hexsend(test, 4);
+		delay_ms(50);
+		if(sim800c_send_cmd((u8*)0X1A,"SEND OK",1000)==0){
+		  printf("send ok\r\n");
+		}else{
+		  printf("send fail\r\n");
+		}
+				
+		delay_ms(500); 
+  }else{
+    sim800c_send_cmd((u8*)0X1B,0,0);	//ESC,取消发送 
+		printf("cancel send \r\n");
+	}
+			
+  if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",500)){
+	  printf("cip close fail \r\n");
+		return 6;
+	}else {
+	  printf("cip close ok\r\n");
+	}
+	
+  if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",500)){
+	  printf("cip shut down fail \r\n");
+		return 7;
+	}else{
+	  printf("cip shut down ok \r\n");
+	}
+	
   return 0;
 }
 
@@ -451,6 +479,30 @@ u8 checkSIM800HW(void)
 		}
 	}
   return ret;	
+}
+
+u8 getCCID(u8* pCcid){
+  u8 ret=1, i=0;
+	u8 *p1=0;
+	
+	if(sim800c_send_cmd("AT+CCID=?", "OK", 200) == 0){
+		//printf("CCID test cmd ok \r\n");
+		if(sim800c_send_cmd("AT+CCID", "OK", 200) == 0) {
+			//delay_ms(100);
+			p1 = USART2_RX_BUF;
+			p1[20]=0;
+			printf("ccid is %s \r\n", (const char*)p1);
+			while(i < 20){
+			  pCcid[i] = sim800c_chr2hex(*(p1+i));
+				i++;
+			}
+			ret = 0;
+		}
+	}else{
+	  printf("CCID test cmd fail /r/n");
+	}
+	
+	return ret;
 }
 
 u8 checkGSMSignalQuality(u8* p){

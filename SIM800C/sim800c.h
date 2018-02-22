@@ -31,11 +31,7 @@ void sim800c_unigbk_exchange(u8 *src,u8 *dst,u8 mode);
 void sim800c_load_keyboard(u16 x,u16 y,u8 **kbtbl);
 void sim800c_key_staset(u16 x,u16 y,u8 keyx,u8 sta);
 u8 sim800c_get_keynum(u16 x,u16 y);
-u8 sim800c_call_test(void);			 //拨号测试
-void sim800c_sms_read_test(void);	 //读短信测试
-void sim800c_sms_send_test(void);	 //发短信测试 
-void sim800c_sms_ui(u16 x,u16 y);	 //短信测试UI界面函数
-u8 sim800c_sms_test(void);			 //短信测试
+
 
 
 u8 sim800c_gsminfo_show(u16 x,u16 y);//显示GSM模块信息
@@ -44,6 +40,8 @@ u8 fetchNetworkTime(u8* pTime);
 u8 checkSIM800HW(void);
 u8 checkGSMSignalQuality(u8 *p);
 u8 queryCellId(u8* id);
+u8 getCCID(u8* pCcid);
+u8 sim800c_gprs_tcp(u8* content);
 #endif
 
 

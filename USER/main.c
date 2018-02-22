@@ -211,6 +211,7 @@ void main_task(void *p_arg)
 	RTCret = RTC_Init();
 	while(1)
 	{
+		/*
 		printf("[%d]main task wait ...\r\n", OSTimeGet(&err));
 		LED0 = 0;
 		flags = OSFlagPend((OS_FLAG_GRP*)&EventFlags,
@@ -232,8 +233,8 @@ void main_task(void *p_arg)
 			  
 			}
 		}
-		
-		//OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);   //—” ±1s
+		*/
+		OSTimeDlyHMSM(0,0,10,0,OS_OPT_TIME_PERIODIC,&err);   //—” ±1s
 		
 		
 	}
@@ -257,7 +258,7 @@ void modem_task(void *p_arg)
 								      (OS_ERR*)&err);
 	while(1){
 	  flags = OSFlagPend((OS_FLAG_GRP*)&EventFlags,
-		       (OS_FLAGS	)KEY0_FLAG+TIMER_FLAG+NTP_TIMER_FLAG,
+		       (OS_FLAGS	)KEY0_FLAG+KEY1_FLAG+TIMER_FLAG+NTP_TIMER_FLAG,
 		     	 (OS_TICK   )0,
 				   (OS_OPT	  )OS_OPT_PEND_FLAG_SET_ANY+OS_OPT_PEND_FLAG_CONSUME,
 				   (CPU_TS*   )0,
@@ -271,6 +272,14 @@ void modem_task(void *p_arg)
 		  SignalQ = queryCellId(buf);
 			if(fetchNetworkTime(buf) == 0){
 			    printf("%d/%d/%d %d:%d:%d\r\n", buf[0], buf[1],buf[2], buf[3], buf[4], buf[5]);
+			}
+			memset(buf, 0, INTERNAL_MEMBLOCK_SIZE);
+			if(getCCID(buf) == 0){
+			  //  printf("ccid %x%x%x%x%x%x%x%x%x%x \r\n", buf[0], buf[1],buf[2], buf[3], buf[4], 
+				//         buf[5],buf[6], buf[7],buf[8], buf[9]);
+				//  printf("ccid %x%x%x%x%x%x%x%x%x%x \r\n", buf[10], buf[11],buf[12], buf[13], buf[14], 
+				//         buf[15],buf[16], buf[17],buf[18], buf[19]);
+				
 			}
 		}else if(flags & KEY0_FLAG){
 			
@@ -294,6 +303,9 @@ void modem_task(void *p_arg)
 			    RTC_Set(year, buf[1],buf[2], hour, buf[4], buf[5]);
 			}
 			OSTmrStart(&tmr1,&err);
+		}else if(flags & KEY1_FLAG){
+			OSTmrStop(&tmr1,OS_OPT_TMR_NONE,0,&err);
+		  sim800c_gprs_tcp(buf);
 		}
   }
 	

@@ -118,6 +118,17 @@ void u2_printf(char* fmt,...)
 	UART_DMA_Enable(DMA1_Channel7,strlen((const char*)USART2_TX_BUF)); 	//通过dma发送出去
 }
 
+void u2_hexsend(u8 *content, u8 len)  
+{  
+	if(len > USART2_MAX_SEND_LEN){
+	  return;
+	}
+	memset(USART2_TX_BUF, 0, USART2_MAX_SEND_LEN);
+	memcpy(USART2_TX_BUF, content, len);
+	while(DMA1_Channel7->CNDTR!=0);	//等待通道7传输完成   
+	UART_DMA_Enable(DMA1_Channel7,strlen((const char*)USART2_TX_BUF)); 	//通过dma发送出去
+}
+
 //定时器4中断服务程序		    
 void TIM4_IRQHandler(void)
 { 
