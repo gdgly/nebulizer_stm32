@@ -126,7 +126,8 @@ void u2_hexsend(u8 *content, u8 len)
 	memset(USART2_TX_BUF, 0, USART2_MAX_SEND_LEN);
 	memcpy(USART2_TX_BUF, content, len);
 	while(DMA1_Channel7->CNDTR!=0);	//等待通道7传输完成   
-	UART_DMA_Enable(DMA1_Channel7,strlen((const char*)USART2_TX_BUF)); 	//通过dma发送出去
+	//UART_DMA_Enable(DMA1_Channel7,strlen((const char*)USART2_TX_BUF)); 	//通过dma发送出去
+	UART_DMA_Enable(DMA1_Channel7,len); 	//通过dma发送出去
 }
 
 //定时器4中断服务程序		    

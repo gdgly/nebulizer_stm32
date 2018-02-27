@@ -157,11 +157,14 @@ void sim800c_unigbk_exchange(u8 *src,u8 *dst,u8 mode)
 //用于测试TCP/UDP连接
 //返回值:0,正常
 //其他,错误代码
-u8 sim800c_gprs_tcp(u8* content)
+u8 sim800c_gprs_tcp(u8* content, u16 len)
 {
-	u8 ret = 1;
 	u8 *p1, *p2;
-	u8 test[4] = {0x55, 0xaa, 0x5a, 0xa5};
+	//u8 test[4] = {0x55, 0xaa, 0x5a, 0xa5};
+	u8 cmd[20] = {0};
+	u8 recv[SERVER_RES_LEN+1] = {0};
+	u8 i=0,length=0,j=0,recvFlag=0, count =0;
+	u16 ret = 0;
 	printf("sim8ooc_gprs_tcp \r\n");
 	
 	if(sim800c_send_cmd("AT+CGCLASS=\"B\"","OK",1000)){
@@ -174,7 +177,7 @@ u8 sim800c_gprs_tcp(u8* content)
 		return 2;
 	}
 	
-	if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500)){
+	if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500) == 0){
 	   p1=(u8*)strstr((const char*)(USART2_RX_BUF),":");
 		 p2 = (u8 *)strstr((const char*)(USART2_RX_BUF),"1");
 		 if(p2 == 0){
@@ -188,32 +191,117 @@ u8 sim800c_gprs_tcp(u8* content)
 		   printf("gprs already connect \r\n");
 		 }
 	}
-		
+	
 	if(sim800c_send_cmd("AT+CLPORT=\"TCP\",\"2000\"","OK",1000)){
 	  printf("clport fail \r\n");
     return 4;		 
 	}
 	
-	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
+	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
 	  printf("connect fail \r\n");
     return 4;		 
 	}else {
 	  printf("connect ok\r\n");
 	}
 	
-	if(sim800c_send_cmd("AT+CIPSEND",">",500)==0)		//发送数据
+	sprintf((char*)cmd,"AT+CIPSEND=%d",len);
+	
+	if(sim800c_send_cmd(cmd,">",500)==0)		//发送数据
   { 
  				//printf("CIPSEND DATA:%s\r\n",p1);	 			//发送数据打印到串口
     //u2_printf("%s\r\n","fuck you again");
-		u2_hexsend(test, 4);
+		
+		u2_hexsend(content, len);
+		
 		delay_ms(50);
+		
 		if(sim800c_send_cmd((u8*)0X1A,"SEND OK",1000)==0){
 		  printf("send ok\r\n");
 		}else{
 		  printf("send fail\r\n");
 		}
-				
-		delay_ms(500); 
+		
+		USART2_RX_STA = 0;
+		
+    while((i < SERVER_RES_LEN) && (count < 100)){
+	    if(USART2_RX_STA & 0x8000){
+		    p1 = USART2_RX_BUF;
+			  length = USART2_RX_STA&0x7FFF;
+			  if(recvFlag == 0){
+			    for(j=0; j<length; j++){
+			      if(*p1 == 0x55){
+						  printf("find 0x55 \r\n");
+					    break;
+				    }
+				    p1++;
+			    }
+			    if(j!=length){
+			      if((length-j) >= SERVER_RES_LEN){
+				      memcpy(recv,p1,SERVER_RES_LEN);
+						  printf("finish in 1st receive\r\n");
+						  recvFlag = 2;
+						  USART2_RX_STA = 0;
+					    break;
+				    }else{
+				      memcpy(recv, p1, length-j);
+						  recvFlag=1;
+						  i = length-j;
+						  printf("1 shot len %d, j %d, i %d \r\n", length, j, i);
+						  USART2_RX_STA = 0;
+				    }
+			    }else{
+				    printf("0x55 not in this recv \r\n");
+					  USART2_RX_STA = 0;
+				  }
+		    }else{
+				  printf("len %d, i %d \r\n", length, i);
+				  if(length >= (SERVER_RES_LEN-i)){
+			      memcpy(recv+i, p1, SERVER_RES_LEN-i);
+					  printf("rece mult finish\r\n");
+					  recvFlag = 2;
+					  USART2_RX_STA = 0;
+					  break;
+				  }else{
+					  memcpy(recv+i, p1, length);
+					  i = length+i;
+					  USART2_RX_STA = 0;
+				  }
+			  }
+			
+	    }
+		  delay_ms(100);
+		  count++;//we can not wait too long, 3s at most
+    }
+
+	  if(recvFlag != 2){
+	    ret = 0x50;
+		  printf("recv not complete and timeout \r\n");
+	  }else{
+	    if(recv[1] != 0xAA){
+	      ret = 0x10;
+			  printf("preamble is wrong \r\n");
+	    }else{
+	      if((recv[3] != content[3]) || (recv[4] != content[4])){
+		      ret = 0x20;
+				  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
+		    }else{
+		      if(recv[5] != 0x77){
+					  printf("server find wrong data %d\r\n", recv[5]);
+			      ret = 0x30;
+			    }else{
+			      u8 value = xorVerify(recv+2, SERVER_RES_LEN-3);
+				    if(value != recv[SERVER_RES_LEN-1]){
+				      ret = 0x40;
+						  printf("xor is wrong \r\n");
+				    }else{
+				      printf("recv verify pass \r\n");
+				    }
+			    }
+		    }
+	    }
+    }
+		//delay_ms(500); 
   }else{
     sim800c_send_cmd((u8*)0X1B,0,0);	//ESC,取消发送 
 		printf("cancel send \r\n");
@@ -236,6 +324,171 @@ u8 sim800c_gprs_tcp(u8* content)
   return 0;
 }
 
+u16 sim800c_gprs_transparentMode(u8* content, u16 len)
+{
+	u8 *p1, *p2;
+	u8 recv[SERVER_RES_LEN+1] = {0};
+	u8 i=0,length=0,j=0,recvFlag=0, count=0;
+	u16 ret = 0;
+	printf("sim800c_gprs_transparentMode \r\n");
+	
+	if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500) == 0){
+	   p1=(u8*)strstr((const char*)(USART2_RX_BUF),":");
+		 p2 = (u8 *)strstr((const char*)(USART2_RX_BUF),"1");
+		 if(p2 == 0){
+		    printf("gprs is not attach \r\n");
+			  if(sim800c_send_cmd("AT+CGATT=1","OK",500)){
+					return 3;					//附着GPRS业务
+				}else{
+				  printf("gprs reconnect ok \r\n");
+				}
+		 }else{
+		   printf("gprs already connect \r\n");
+		 }
+	}
+	
+	if(sim800c_send_cmd("AT+CIPMODE=1","OK",200)){
+	  printf("cip mode fail \r\n");
+    return 4;		 
+	}
+	
+	if(sim800c_send_cmd("AT+CSTT=\"CMNET\"","OK",1000)){
+	  printf("cstt cmnet fail \r\n");
+    return 4;		 
+	}
+	
+	if(sim800c_send_cmd("AT+CIICR","OK",1000)){
+	  printf("ciicr fail \r\n");
+    return 4;		 
+	}
+	
+	if(sim800c_send_cmd("AT+CIFSR",0,100)){
+	  printf("ciicr fail \r\n");
+    return 4;		 
+	}else{
+		delay_ms(100);
+	  if(USART2_RX_STA & 0x8000){
+		  printf("ip %s \r\n", (const char*)(USART2_RX_BUF));
+		}
+	}
+	
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT",3000)){
+	  printf("connect fail \r\n");
+    return 4;		 
+	}else {
+	  printf("connect ok\r\n");
+	}
+	
+  USART2_RX_STA = 0;
+	u2_hexsend(content, len);
+	
+	while((i < SERVER_RES_LEN) && (count < 100)){
+	  if(USART2_RX_STA & 0x8000){
+		  p1 = USART2_RX_BUF;
+			length = USART2_RX_STA&0x7FFF;
+			if(recvFlag == 0){
+			  for(j=0; j<length; j++){
+			    if(*p1 == 0x55){
+						printf("find 0x55 \r\n");
+					  break;
+				  }
+				  p1++;
+			  }
+			  if(j!=length){
+			    if((length-j) >= SERVER_RES_LEN){
+				    memcpy(recv,p1,SERVER_RES_LEN);
+						printf("finish in 1st receive\r\n");
+						recvFlag = 2;
+						USART2_RX_STA = 0;
+					  break;
+				  }else{
+				    memcpy(recv, p1, length-j);
+						recvFlag=1;
+						i = length-j;
+						printf("1 shot len %d, j %d, i %d \r\n", length, j, i);
+						USART2_RX_STA = 0;
+				  }
+			  }else{
+				  printf("0x55 not in this recv \r\n");
+					USART2_RX_STA = 0;
+				}
+		  }else{
+				printf("len %d, i %d \r\n", length, i);
+				if(length >= (SERVER_RES_LEN-i)){
+			    memcpy(recv+i, p1, SERVER_RES_LEN-i);
+					printf("rece mult finish\r\n");
+					recvFlag = 2;
+					USART2_RX_STA = 0;
+					break;
+				}else{
+					memcpy(recv+i, p1, length);
+					i = length+i;
+					USART2_RX_STA = 0;
+				}
+			}
+			
+	  }
+		delay_ms(100);
+		count++;//we can not wait too long, 3s at most
+  }
+	
+	if(recvFlag != 2){
+	  ret = 0x50;
+		printf("recv not complete and timeout \r\n");
+	}else{
+	  if(recv[1] != 0xAA){
+	    ret = 0x10;
+			printf("preamble is wrong \r\n");
+	  }else{
+	    if((recv[3] != content[3]) || (recv[4] != content[4])){
+		    ret = 0x20;
+				printf("flow index not match %d %d\r\n", recv[3], recv[4]);
+		  }else{
+		    if(recv[5] != 0x77){
+					printf("server find wrong data %d\r\n", recv[5]);
+			    ret = 0x30;
+			  }else{
+			    u8 value = xorVerify(recv+2, SERVER_RES_LEN-3);
+				  if(value != recv[SERVER_RES_LEN-1]){
+				    ret = 0x40;
+						printf("xor is wrong \r\n");
+				  }else{
+				    printf("recv verify pass \r\n");
+				  }
+			  }
+		  }
+	  }
+  }
+		
+	delay_ms(1000);
+	u2_printf("+++");
+	delay_ms(1000);
+			
+  if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",500)){
+	  printf("cip close fail \r\n");
+		return ret|5;
+	}else {
+	  printf("cip close ok\r\n");
+	}
+	
+  if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",500)){
+	  printf("cip shut down fail \r\n");
+		return ret|6;
+	}else{
+	  printf("cip shut down ok \r\n");
+	}
+	
+  return ret;
+}
+
+u8 xorVerify(u8* buf, u8 len){
+  int ret = 0,i;
+	for(i = 0; i < len ; i++){
+	  ret = ret^(*(buf+i));
+	}
+	printf("xor result %x \r\n", ret);
+	return ret;
+}
 
 ///////////////////////////////////////////////////////////////////// 
 //ATK-SIM800C GSM/GPRS主测试控制部分
@@ -331,19 +584,29 @@ u8 ntp_update(void)
 	 }
 	 //sim800c_send_cmd("AT+CNTP=\"202.120.2.101\",32","OK",200);     //设置NTP服务器和本地时区(32时区 时间最准确)
 	 
-	 if(sim800c_send_cmd("AT+CNTP=\"133.100.11.8\",8","OK",800)){
+	 if(sim800c_send_cmd("AT+CNTP=\"202.108.6.95\",8","OK",800)){
 	   printf("ntp fail step 5 \r\n");
 		 //return 5;
 		 ret = 5;
 		 goto end;
 	 }else{
-	   printf("ntp step 5 ok\r\n");
+	   printf("ntp step 5 ok，china\r\n");
 	 }
 	 
    if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
-	   printf("ntp fail step 6 \r\n");
-		 ret = 6;
-		 goto end;
+	   printf("ntp fail step 6, try another ntp server \r\n");
+		 
+		 if(sim800c_send_cmd("AT+CNTP=\"123.204.45.116\",8","OK",800)){
+			 ret =6;
+			 goto end;
+		 }else{
+		   if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
+			   ret = 6;
+				 goto end;
+			 }else{
+			   printf("ntp 2nd try ok\r\n");
+			 }
+		 }
 	 }else{
 	   printf("ntp step 6 ok\r\n");
 	 }
@@ -355,7 +618,7 @@ u8 ntp_update(void)
 		 printf("ntp ok, close gprs context \r\n");
 	   return 0;
 	 }
-	 	 
+	 	
 end:	 
 	 if(sim800c_send_cmd("AT+SAPBR=0,1",0,200)){
 	   printf("ntp close gprs fail\r\n");
@@ -465,8 +728,8 @@ u8 fetchNetworkTime(u8* pTime){
 u8 checkSIM800HW(void)
 {
 	u8 ret = 1;
-	if(sim800c_send_cmd("AT","OK",100))//检测是否应答AT指令 
-	{
+	printf("checkSIM800HW ..\r\n");
+	if(sim800c_send_cmd("AT","OK",100)){
 		printf("at no response \r\n");
 	} else {
 	  printf("at response ok\r\n");
@@ -481,6 +744,51 @@ u8 checkSIM800HW(void)
   return ret;	
 }
 
+u8 checkGPRSEnv(void){
+	u8 *p1, *p2;
+	u8 ret=1, reg, value;
+	
+	value = queryCSQ();
+	
+	if(value < 8){
+		printf("signal %d < 8, too weak\r\n", value);
+	  return 1;  
+	}
+	
+  if(sim800c_send_cmd("AT+CREG?","+CREG:",100)){
+		printf("CREG cmd fail \r\n");
+    return 2;
+	}
+	
+  p1=(u8*)strstr((const char*)(USART2_RX_BUF),",");
+	reg = sim800c_chr2hex(*(p1+1));
+	if((reg != 1)&&(reg != 5)){
+		printf("GSM not register %d \r\n", reg);
+    return 3;			
+  }
+ 
+  if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500)){
+		printf("CGATT cmd fail\r\n");
+    return 4;
+  }
+
+	p1=(u8*)strstr((const char*)(USART2_RX_BUF),":");
+	p2 = (u8 *)strstr((const char*)(USART2_RX_BUF),"1");
+	if(p2 == 0){
+	  printf("gprs is not attach \r\n");
+	  if(sim800c_send_cmd("AT+CGATT=1","OK",500)){
+		  return 5;					//附着GPRS业务
+	  }else{
+			printf("please check GATT again \r\n");
+			return 6;
+		}
+  }else{
+		printf("gprs already connect \r\n");
+	}
+	
+	return 0;
+}
+
 u8 getCCID(u8* pCcid){
   u8 ret=1, i=0;
 	u8 *p1=0;
@@ -490,13 +798,29 @@ u8 getCCID(u8* pCcid){
 		if(sim800c_send_cmd("AT+CCID", "OK", 200) == 0) {
 			//delay_ms(100);
 			p1 = USART2_RX_BUF;
-			p1[20]=0;
-			printf("ccid is %s \r\n", (const char*)p1);
-			while(i < 20){
-			  pCcid[i] = sim800c_chr2hex(*(p1+i));
+			while(i < 10){
+			  if(*p1 < 0x30){
+				  p1++;
+				}else{
+				  break;
+				}
 				i++;
 			}
-			ret = 0;
+			if(i<10){
+			  p1[20]=0;
+			  printf("ccid is %s \r\n", (const char*)p1);
+			  /*
+			    while(i < 20){
+			     pCcid[i] = sim800c_chr2hex(*(p1+i));
+				  i++;
+			  }
+			  */
+			  memcpy(pCcid, p1, 20);
+			
+			  ret = 0;
+			}else{
+			  printf("no num in first 10 bytes \r\n");
+			}				
 		}
 	}else{
 	  printf("CCID test cmd fail /r/n");
@@ -505,19 +829,19 @@ u8 getCCID(u8* pCcid){
 	return ret;
 }
 
-u8 checkGSMSignalQuality(u8* p){
+u8 queryCSQ(){
 	u8 *p1,*p2;
 	u8 value =0;
 	
 	//AT+CSQ
 	//+CSQ: 24,0
+	printf("queryCSQ ...\r\n");
   if(sim800c_send_cmd("AT+CSQ","+CSQ:",200)==0)
 	{ 
 		p1=(u8*)strstr((const char*)(USART2_RX_BUF),":");
 		p2=(u8*)strstr((const char*)(p1),",");
 		p2[0]=0;//加入结束符
-		sprintf((char*)p,"信号质量:%s",p1+2);
-		printf("%s\r\n", p);
+		printf("CSQ %s\r\n", p1);
 		if(*(p1+3) == '\0'){
       value = sim800c_chr2hex(*(p1+2));
 		}else if(*(p1+4) == '\0') {
@@ -527,29 +851,94 @@ u8 checkGSMSignalQuality(u8* p){
 		  printf("SQ format is wrong, 2 bit at most \r\n");
 		}
     USART2_RX_STA=0;
+	}else{
+	  printf("queryCSQ fail \r\n");
 	}
 	
   return value;
 }
 
-u8 queryCellId(u8* id){
-	u8 ret = 0;
+u8 queryCellId(u8* id, u8* neighborId){
+	u8 ret = 1;
 	u8 *p1,*p2;
 	//AT+CSQ
 	//+CSQ: 24,0
-	id = id;
+	memset(id, 18, 0);
+	memset(neighborId, 18, 0);
 	if(sim800c_send_cmd("AT+CENG=1,1","OK",200)){
-		ret = 1;
 		printf("ceng mode open fail \r\n");
 	} else {
 		printf("ceng mode open ok \r\n");
     if(sim800c_send_cmd("AT+CENG?","+CENG:",200)==0){ 
-	    //printf("ceng return %s \r\n", (const char*)(USART2_RX_BUF));
-		
-			p1=(u8*)strstr((const char*)(USART2_RX_BUF),"\"");
-			p2=(u8*)strstr((const char*)(p1+1),"\"");
-			p2[0]=0;//加入结束符
-			printf("cell 0 info %s \r\n", p1+1);
+	    printf("ceng return %s \r\n", (const char*)(USART2_RX_BUF));
+		  delay_ms(100);
+			p1=(u8*)strstr((const char*)(USART2_RX_BUF),"0,\"");
+			//p2=(u8*)strstr((const char*)(p1+3),"\"");
+			//p2[0]=0;//加入结束符
+			if(p1 != 0){
+			  u8 *ptrS, *ptrE;
+				//printf("cell 0 info %s \r\n", p1+3);
+				ptrS = (u8*)strstr((const char*)(p1+3),",");//bcch,rxl
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//rxl,rxq
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//rxq,mcc
+				ptrE = ptrS;
+				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//mcc,mnc
+				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//mnc,bsic
+				if((ptrE-ptrS-1) == 6){
+				  memcpy(id, ptrS+1, 7); //460,00,
+					printf("id-1 %s \r\n", id);
+				}else{
+				  printf("mcc,mnc len is wrong %d\r\n", ptrE-ptrS);
+				}
+				ptrS = ptrE;
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//bsic,cellid
+				ptrE = ptrS;
+				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//cellid,rla
+				if((ptrE-ptrS-1) == 4){
+				  memcpy(id+7, ptrS+1, 5); //62ea,
+					printf("id-2 %s \r\n", id);
+				}else{
+				  printf("cellid len is wrong %d\r\n", ptrE-ptrS);
+				}
+				ptrS = ptrE;
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//rla,txp
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//txp,lac
+				ptrE = ptrS;
+				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//lac,TA
+				if((ptrE-ptrS-1) == 4){
+				  memcpy(id+12, ptrS+1, 5); //11d6,
+					printf("id-3 %s \r\n", id);
+				}else{
+				  printf("cellid len is wrong %d\r\n", ptrE-ptrS);
+				}
+				printf("cell 0 parse finish \r\n");
+			}else{
+			  printf("no cell 0 info");
+			}
+			
+			p1=(u8*)strstr((const char*)(USART2_RX_BUF),"1,\"");
+			if(p1 != 0){
+			  u8 *ptrS, *ptrE;
+				//printf("cell 0 info %s \r\n", p1+3);
+				ptrS = (u8*)strstr((const char*)(p1+3),",");//bcch,rxl
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//rxl,bsic
+				ptrS = (u8*)strstr((const char*)(ptrS+1),",");//bsic,cellid
+				ptrE = (u8*)strstr((const char*)(ptrS+1),"\"");
+				if((ptrE - ptrS -1) == 16){
+				  memcpy(neighborId, ptrS+6,7);
+					memcpy(neighborId+7, ptrS+1,5);
+					memcpy(neighborId+12,ptrS+13,4);
+					neighborId[16] = ',';
+					printf("neighborId = %s \r\n", neighborId);
+				}else{
+				  printf("cell 1 len is wrong %d\r\n", ptrE-ptrS);
+					sprintf(neighborId, "%03d,%02d,%04d,%04d,",0,0,0,0);
+				}
+			}else{
+			
+			}
+			
+			ret = 0;
 			if(sim800c_send_cmd("AT+CENG=0,1","OK",200) == 0){
 			  printf("ceng mode close ok\r\n");
 			}else{

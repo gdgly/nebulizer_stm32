@@ -18,7 +18,11 @@
 
 #define swap16(x) (x&0XFF)<<8|(x&0XFF00)>>8	//高低字节交换宏定义
  
+#define SERVER_RES_LEN 27
+
 extern u8 Scan_Wtime;
+
+
 
 void sim_send_sms(u8*phonenumber,u8*msg);
 void sim_at_response(u8 mode);	
@@ -34,14 +38,17 @@ u8 sim800c_get_keynum(u16 x,u16 y);
 
 
 
+
 u8 sim800c_gsminfo_show(u16 x,u16 y);//显示GSM模块信息
 u8 ntp_update(void);               //网络同步时间
 u8 fetchNetworkTime(u8* pTime);
 u8 checkSIM800HW(void);
-u8 checkGSMSignalQuality(u8 *p);
-u8 queryCellId(u8* id);
+u8 checkGPRSEnv(void);
+u8 queryCSQ(void);
+u8 queryCellId(u8* id, u8* neighborId);
 u8 getCCID(u8* pCcid);
-u8 sim800c_gprs_tcp(u8* content);
+u8 sim800c_gprs_tcp(u8* content, u16 len);
+u8 xorVerify(u8* buf, u8 len);
 #endif
 
 

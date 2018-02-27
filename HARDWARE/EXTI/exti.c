@@ -49,6 +49,15 @@ void EXTIX_Init(void)
   	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
   	EXTI_Init(&EXTI_InitStructure);	  	//¸ù¾ÝEXTI_InitStructÖÐÖ¸¶¨µÄ²ÎÊý³õÊ¼»¯ÍâÉèEXTI¼Ä´æÆ
 		
+		    //GPIOA.0	
+  	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA,GPIO_PinSource0);
+
+   	EXTI_InitStructure.EXTI_Line=EXTI_Line0;
+  	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;	
+  	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;
+  	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+  	EXTI_Init(&EXTI_InitStructure);
+		
 		
 		NVIC_InitStructure.NVIC_IRQChannel = EXTI9_5_IRQn;			//Ê¹ÄÜ°´¼üËùÔÚµÄÍâ²¿ÖÐ¶ÏÍ¨µÀ
   	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02;	//ÇÀÕ¼ÓÅÏÈ¼¶2£¬ 
@@ -61,6 +70,12 @@ void EXTIX_Init(void)
   	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x00;					//×ÓÓÅÏÈ¼¶1
   	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;								//Ê¹ÄÜÍâ²¿ÖÐ¶ÏÍ¨µÀ
   	NVIC_Init(&NVIC_InitStructure); 
+		
+  	NVIC_InitStructure.NVIC_IRQChannel = EXTI0_IRQn;			//?????????????
+  	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02;	//?????2 
+  	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02;					//????1
+  	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;								//????????
+  	NVIC_Init(&NVIC_InitStructure);  	  //??NVIC_InitStruct???????????NVIC???
 }
 
  void EXTI9_5_IRQHandler(void)
@@ -72,7 +87,7 @@ void EXTIX_Init(void)
 	if(KEY0 == 0) {
 		//LED0 = 0;
 		printf("[%d]key0 pressed\r\n", OSTimeGet(&err));
-		postKey0Event();
+		postKeyEvent(0);
   }
  	EXTI_ClearITPendingBit(EXTI_Line5);    //Çå³ýLINE5ÉÏµÄÖÐ¶Ï±êÖ¾Î»  
 
@@ -89,12 +104,29 @@ void EXTI15_10_IRQHandler(void)
   if(KEY1==0)	{
 		//LED1 = 0;
 		printf("[%d]key1 pressed\r\n", OSTimeGet(&err));
-		postKey1Event();
+		postKeyEvent(1);
 	}
 	
 	EXTI_ClearITPendingBit(EXTI_Line15);  //Çå³ýLINE15ÏßÂ·¹ÒÆðÎ»
 	OSIntExit(); 
 }
 
-
+void EXTI0_IRQHandler(void)
+{
+	OS_ERR err;	
+	
+	OSIntEnter();
+  delay_ms(10); 
+	if(WK_UP==1)
+	{	  
+		printf("[%d]key wakeup pressed\r\n", OSTimeGet(&err));
+		postKeyEvent(3);
+	}else if(WK_UP==0){
+  	printf("[%d]key wakeup released\r\n", OSTimeGet(&err));
+		postKeyEvent(2);
+	}
+	
+	EXTI_ClearITPendingBit(EXTI_Line0);
+	OSIntExit();
+}
 
