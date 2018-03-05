@@ -23,6 +23,11 @@
 //FLASH起始地址
 #define STM32_FLASH_BASE 0x08000000 	//STM32 FLASH的起始地址
  
+#if STM32_FLASH_SIZE<256
+#define STM_SECTOR_SIZE 1024 //字节
+#else 
+#define STM_SECTOR_SIZE	2048
+#endif	
  
 
 u16 STMFLASH_ReadHalfWord(u32 faddr);		  //读出半字  

@@ -157,24 +157,24 @@ void sim800c_unigbk_exchange(u8 *src,u8 *dst,u8 mode)
 //用于测试TCP/UDP连接
 //返回值:0,正常
 //其他,错误代码
-u8 sim800c_gprs_tcp(u8* content, u16 len)
+SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 {
 	u8 *p1, *p2;
 	//u8 test[4] = {0x55, 0xaa, 0x5a, 0xa5};
 	u8 cmd[20] = {0};
 	u8 recv[SERVER_RES_LEN+1] = {0};
 	u8 i=0,length=0,j=0,recvFlag=0, count =0;
-	u16 ret = 0;
+	SIM800_ERROR ret = 0;
 	printf("sim8ooc_gprs_tcp \r\n");
 	
 	if(sim800c_send_cmd("AT+CGCLASS=\"B\"","OK",1000)){
 		printf("cgclass fail \r\n");
-		return 1;
+		return AT_FAIL;
   }
 	
 	if(sim800c_send_cmd("AT+CGDCONT=1,\"IP\",\"CMNET\"","OK",1000)){
 		printf("cgdcont fail \r\n");
-		return 2;
+		return AT_FAIL;
 	}
 	
 	if(sim800c_send_cmd("AT+CGATT?","+CGATT:",500) == 0){
@@ -183,7 +183,7 @@ u8 sim800c_gprs_tcp(u8* content, u16 len)
 		 if(p2 == 0){
 		    printf("gprs is not attach \r\n");
 			  if(sim800c_send_cmd("AT+CGATT=1","OK",500)){
-					return 3;					//附着GPRS业务
+					return AT_FAIL;					//附着GPRS业务
 				}else{
 				  printf("gprs reconnect ok \r\n");
 				}
@@ -194,18 +194,25 @@ u8 sim800c_gprs_tcp(u8* content, u16 len)
 	
 	if(sim800c_send_cmd("AT+CLPORT=\"TCP\",\"2000\"","OK",1000)){
 	  printf("clport fail \r\n");
-    return 4;		 
+    return AT_FAIL;
 	}
 	
-	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
-	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
+		
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
+	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
 	  printf("connect fail \r\n");
-    return 4;		 
+    return AT_FAIL;
 	}else {
 	  printf("connect ok\r\n");
 	}
 	
-	sprintf((char*)cmd,"AT+CIPSEND=%d",len);
+	if(sim800c_send_cmd("AT+CIPSTATUS","CONNECT OK",500) == 0){
+		printf("CIPSTATUS is connected , right \r\n");
+	}else{
+		printf("CIPSTATUS is wrong \r\n");
+	}
+	
+	sprintf((char*)cmd,"AT+CIPSEND=%d",len); //fixed length, no need to send 0x1A
 	
 	if(sim800c_send_cmd(cmd,">",500)==0)		//发送数据
   { 
@@ -215,12 +222,14 @@ u8 sim800c_gprs_tcp(u8* content, u16 len)
 		u2_hexsend(content, len);
 		
 		delay_ms(50);
-		
+		printf("do not send 0x1A \r\n");
+		/*
 		if(sim800c_send_cmd((u8*)0X1A,"SEND OK",1000)==0){
 		  printf("send ok\r\n");
 		}else{
 		  printf("send fail\r\n");
 		}
+		*/
 		
 		USART2_RX_STA = 0;
 		
@@ -275,55 +284,58 @@ u8 sim800c_gprs_tcp(u8* content, u16 len)
     }
 
 	  if(recvFlag != 2){
-	    ret = 0x50;
+	    ret = AT_SERVER_RES_TIMEOUT;
 		  printf("recv not complete and timeout \r\n");
 	  }else{
 	    if(recv[1] != 0xAA){
-	      ret = 0x10;
+	      ret = AT_SERVER_PREAMBLE_ERR;
 			  printf("preamble is wrong \r\n");
 	    }else{
-	      if((recv[3] != content[3]) || (recv[4] != content[4])){
-		      ret = 0x20;
-				  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
-		    }else{
+	      //if((recv[3] != content[3]) || (recv[4] != content[4])){
+		    //  ret = AT_SERVER_SERIAL_NUM_ERR;
+				//  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
+		    //}else{
 		      if(recv[5] != 0x77){
 					  printf("server find wrong data %d\r\n", recv[5]);
-			      ret = 0x30;
+			      ret = AT_SERVER_IND_NG;
 			    }else{
 			      u8 value = xorVerify(recv+2, SERVER_RES_LEN-3);
 				    if(value != recv[SERVER_RES_LEN-1]){
-				      ret = 0x40;
+				      ret = AT_SERVER_XOR_ERR;
 						  printf("xor is wrong \r\n");
 				    }else{
-				      printf("recv verify pass \r\n");
+				      printf("recv verify pass, ignore index check for AT cmd failure test \r\n");
 				    }
 			    }
-		    }
+		    //}
 	    }
     }
-		//delay_ms(500); 
   }else{
     sim800c_send_cmd((u8*)0X1B,0,0);	//ESC,取消发送 
-		printf("cancel send \r\n");
+		printf("cancel send, send fail \r\n");
+		ret = AT_GPRS_SEND_FAIL;
 	}
 			
-  if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",500)){
+  if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",2000)){
 	  printf("cip close fail \r\n");
-		return 6;
 	}else {
 	  printf("cip close ok\r\n");
 	}
 	
-  if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",500)){
+  if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",1000)){
 	  printf("cip shut down fail \r\n");
-		return 7;
 	}else{
 	  printf("cip shut down ok \r\n");
 	}
 	
-  return 0;
+	if(sim800c_send_cmd("AT+CIPSTATUS","IP INITIAL",500) == 0){
+		delay_ms(50);
+	  printf("CIPSTATUS IP INITIAL is ok \r\n");
+	}
+	
+  return ret;
 }
-
+ 
 u16 sim800c_gprs_transparentMode(u8* content, u16 len)
 {
 	u8 *p1, *p2;
