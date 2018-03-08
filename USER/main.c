@@ -121,6 +121,7 @@ u8 endTime[20] = {0};
 #define GRPS_SAVE_START_ADDR  0x08030800
 #define GPRS_SAVE_END_ADDR   0x08032800
 
+u8 testFlag = 0;
 //Page 0 : 2K  => Data Info 8 bytes [Index][DataNum][Xor][DataPtr]
 //Page 1 
 // Loop use from page 1 to 14
@@ -228,7 +229,7 @@ void start_task(void *p_arg)
                 (OS_TMR_CALLBACK_PTR)tmr_ntp_callback,//定时器1回调函数
                 (void	    *)0,			//参数为0
                 (OS_ERR	    *)&err);		//返回的错误码							 
-
+/*
 	OSTmrCreate((OS_TMR		*)&tmr1,		//定时器1
                 (CPU_CHAR	*)"tmr1",		//定时器名字
                 (OS_TICK	 )0,			//0ms
@@ -237,7 +238,16 @@ void start_task(void *p_arg)
                 (OS_TMR_CALLBACK_PTR)tmr1_callback,//定时器1回调函数
                 (void	    *)0,			//参数为0
                 (OS_ERR	    *)&err);		//返回的错误码
-
+*/
+	OSTmrCreate((OS_TMR		*)&tmr1,		//定时器1
+                (CPU_CHAR	*)"tmr1",		//定时器名字
+                (OS_TICK	 )1000,			//0ms
+                (OS_TICK	 )0,        
+                (OS_OPT		 )OS_OPT_TMR_ONE_SHOT,
+                (OS_TMR_CALLBACK_PTR)tmr1_callback,//定时器1回调函数
+                (void	    *)0,			//参数为0
+                (OS_ERR	    *)&err);		//返回的错误码								
+								
 	OSTaskCreate((OS_TCB 	* )&KeyScanTaskTCB,		
 				 (CPU_CHAR	* )"key scan task", 		
                  (OS_TASK_PTR )keyscan_task, 			
@@ -378,11 +388,13 @@ void main_task(void *p_arg)
 	u8 deviceWorking = 0;
 	u8 *pMsg;
 	OS_MSG_SIZE size;
-	u8 testFlag = 0;
+
 	CPU_INT08U *gprs_Buf;
 	p_arg = p_arg;
 	
 	RTC_Init();
+	
+	testFlag = 0;
 	
 	while(1)
 	{
@@ -453,10 +465,14 @@ void main_task(void *p_arg)
 				if(testFlag == 0){
 				  postKeyEvent(3);
 					testFlag = 1;
+					OSTmrStart(&tmr1,&err);
 				}else if(testFlag == 1){
 				  postKeyEvent(2);
 					testFlag = 0;
+					OSTmrStart(&tmr1,&err);
 				}
+				
+				
 				break;
 			}
 			case RTC_UPDATE_FLAG:
@@ -483,8 +499,9 @@ void main_task(void *p_arg)
 			}
 			case KEY0_FLAG:
 			{
-	
-				postGprsSendSaveDataMessage();
+	      OSTmrStart(&tmr1,&err);
+				testFlag = 0;
+				//postGprsSendSaveDataMessage();
 				break;
 			}
 			default:
@@ -569,7 +586,8 @@ void modem_task(void *p_arg)
 			{
 			  SIM800_ERROR aterr;
 			  //OSTmrStop(&tmr1,OS_OPT_TMR_NONE,0,&err);
- 				u32 infoAddr = 0;
+ 				/*
+				u32 infoAddr = 0;
 				u8 infoContent[8];
 				flashTestBuf = OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
 				
@@ -577,7 +595,7 @@ void modem_task(void *p_arg)
 				printf("@@@ flash read test return %d, %08x \r\n", ret, infoAddr);
 								
 				OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)flashTestBuf, (OS_ERR*)&err);
-				
+				*/
 				
 			  if(queryCellId(pMsg+65, pMsg+82) == 0){
 			    //printf("CellId %s \r\n", buf);
@@ -593,8 +611,12 @@ void modem_task(void *p_arg)
 				if(aterr == AT_OK){
 				  OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
 				}else{
+					printf("disable flash and resend feature \r\n");
+					OSTmrStop(&tmr1,OS_OPT_TMR_NONE,0,&err);
+					testFlag = 3;
 					*pMsg = GPRS_TRY_SECOND;
-					 postGprsSendMessage(&pMsg);
+					postGprsSendMessage(&pMsg);
+					//OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
 				}
 				break;
 			}
@@ -607,8 +629,10 @@ void modem_task(void *p_arg)
 				aterr = sim800c_gprs_tcp(pMsg, 100);
 				if(aterr == AT_OK){
 				  OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
+					OSTmrStart(&tmr1, &err);
+					testFlag = 0;
 				}else{
-					ret = saveToFlash(pMsg);
+					//ret = saveToFlash(pMsg);
 					OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
 					
 				}

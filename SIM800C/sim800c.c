@@ -222,7 +222,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		u2_hexsend(content, len);
 		
 		delay_ms(50);
-		printf("do not send 0x1A \r\n");
+		
 		/*
 		if(sim800c_send_cmd((u8*)0X1A,"SEND OK",1000)==0){
 		  printf("send ok\r\n");
@@ -233,10 +233,12 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		
 		USART2_RX_STA = 0;
 		
-    while((i < SERVER_RES_LEN) && (count < 100)){
+    while((i < SERVER_RES_LEN) && (count < 1000)){
 	    if(USART2_RX_STA & 0x8000){
 		    p1 = USART2_RX_BUF;
 			  length = USART2_RX_STA&0x7FFF;
+				printf("rece %d \r\n", length);
+				printf("%s", p1);
 			  if(recvFlag == 0){
 			    for(j=0; j<length; j++){
 			      if(*p1 == 0x55){
@@ -279,7 +281,8 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 			  }
 			
 	    }
-		  delay_ms(100);
+			
+		  delay_ms(10);
 		  count++;//we can not wait too long, 3s at most
     }
 
@@ -291,10 +294,10 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	      ret = AT_SERVER_PREAMBLE_ERR;
 			  printf("preamble is wrong \r\n");
 	    }else{
-	      //if((recv[3] != content[3]) || (recv[4] != content[4])){
-		    //  ret = AT_SERVER_SERIAL_NUM_ERR;
-				//  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
-		    //}else{
+	      if((recv[3] != content[3]) || (recv[4] != content[4])){
+		      ret = AT_SERVER_SERIAL_NUM_ERR;
+				  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
+		    }else{
 		      if(recv[5] != 0x77){
 					  printf("server find wrong data %d\r\n", recv[5]);
 			      ret = AT_SERVER_IND_NG;
@@ -304,10 +307,13 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 				      ret = AT_SERVER_XOR_ERR;
 						  printf("xor is wrong \r\n");
 				    }else{
-				      printf("recv verify pass, ignore index check for AT cmd failure test \r\n");
+							u8 time[21];
+							memcpy(time, &(recv[6]), 20);
+							time[20] = '\0';
+				      printf("recv verify pass %s\r\n", time);
 				    }
 			    }
-		    //}
+		    }
 	    }
     }
   }else{
@@ -315,13 +321,15 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		printf("cancel send, send fail \r\n");
 		ret = AT_GPRS_SEND_FAIL;
 	}
-			
+	
+  printf("cipclose ...\r\n");	
   if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",2000)){
 	  printf("cip close fail \r\n");
 	}else {
 	  printf("cip close ok\r\n");
 	}
 	
+	printf("cipshutdown ...\r\n");
   if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",1000)){
 	  printf("cip shut down fail \r\n");
 	}else{
@@ -882,7 +890,7 @@ u8 queryCellId(u8* id, u8* neighborId){
 	} else {
 		printf("ceng mode open ok \r\n");
     if(sim800c_send_cmd("AT+CENG?","+CENG:",200)==0){ 
-	    printf("ceng return %s \r\n", (const char*)(USART2_RX_BUF));
+	    //printf("ceng return %s \r\n", (const char*)(USART2_RX_BUF));
 		  delay_ms(100);
 			p1=(u8*)strstr((const char*)(USART2_RX_BUF),"0,\"");
 			//p2=(u8*)strstr((const char*)(p1+3),"\"");
@@ -898,7 +906,7 @@ u8 queryCellId(u8* id, u8* neighborId){
 				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//mnc,bsic
 				if((ptrE-ptrS-1) == 6){
 				  memcpy(id, ptrS+1, 7); //460,00,
-					printf("id-1 %s \r\n", id);
+					//printf("id-1 %s \r\n", id);
 				}else{
 				  printf("mcc,mnc len is wrong %d\r\n", ptrE-ptrS);
 				}
@@ -908,7 +916,7 @@ u8 queryCellId(u8* id, u8* neighborId){
 				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//cellid,rla
 				if((ptrE-ptrS-1) == 4){
 				  memcpy(id+7, ptrS+1, 5); //62ea,
-					printf("id-2 %s \r\n", id);
+					//printf("id-2 %s \r\n", id);
 				}else{
 				  printf("cellid len is wrong %d\r\n", ptrE-ptrS);
 				}
@@ -919,7 +927,7 @@ u8 queryCellId(u8* id, u8* neighborId){
 				ptrE = (u8*)strstr((const char*)(ptrE+1),",");//lac,TA
 				if((ptrE-ptrS-1) == 4){
 				  memcpy(id+12, ptrS+1, 5); //11d6,
-					printf("id-3 %s \r\n", id);
+					//printf("id-3 %s \r\n", id);
 				}else{
 				  printf("cellid len is wrong %d\r\n", ptrE-ptrS);
 				}
@@ -941,7 +949,7 @@ u8 queryCellId(u8* id, u8* neighborId){
 					memcpy(neighborId+7, ptrS+1,5);
 					memcpy(neighborId+12,ptrS+13,4);
 					neighborId[16] = ',';
-					printf("neighborId = %s \r\n", neighborId);
+					//printf("neighborId = %s \r\n", neighborId);
 				}else{
 				  printf("cell 1 len is wrong %d\r\n", ptrE-ptrS);
 					sprintf(neighborId, "%03d,%02d,%04d,%04d,",0,0,0,0);
