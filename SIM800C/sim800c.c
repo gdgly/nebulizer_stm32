@@ -163,7 +163,8 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	//u8 test[4] = {0x55, 0xaa, 0x5a, 0xa5};
 	u8 cmd[20] = {0};
 	u8 recv[SERVER_RES_LEN+1] = {0};
-	u8 i=0,length=0,j=0,recvFlag=0, count =0;
+	u8 i=0,length=0,j=0,recvFlag=0;
+	u16 count =0;
 	SIM800_ERROR ret = 0;
 	printf("sim8ooc_gprs_tcp \r\n");
 	
@@ -284,6 +285,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 			
 		  delay_ms(10);
 		  count++;//we can not wait too long, 3s at most
+			//printf("loop %d \r\n", count);;
     }
 
 	  if(recvFlag != 2){
@@ -610,21 +612,31 @@ u8 ntp_update(void)
 		 ret = 5;
 		 goto end;
 	 }else{
-	   printf("ntp step 5 ok£¬china\r\n");
+	   printf("ntp step 5 ok£¬china 202.108.6.95\r\n");
 	 }
 	 
    if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
 	   printf("ntp fail step 6, try another ntp server \r\n");
 		 
-		 if(sim800c_send_cmd("AT+CNTP=\"123.204.45.116\",8","OK",800)){
+		 if(sim800c_send_cmd("AT+CNTP=\"120.25.108.11\",8","OK",800)){
 			 ret =6;
 			 goto end;
 		 }else{
 		   if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
 			   ret = 6;
-				 goto end;
+				 if(sim800c_send_cmd("AT+CNTP=\"202.112.29.82\",8","OK",800)){
+			     ret =6;
+			     goto end;
+		     }else{
+		       if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
+			       ret = 6;
+				     goto end;
+			     }else{
+					    printf("ntp 3rd try china edu 202.112.29.82 ok \r\n");
+					 }
+				 }
 			 }else{
-			   printf("ntp 2nd try ok\r\n");
+			   printf("ntp 2nd try 120.25.108.11\r\n");
 			 }
 		 }
 	 }else{

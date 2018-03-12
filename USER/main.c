@@ -140,13 +140,16 @@ int main(void)
 	
 	delay_init();       //延时初始化
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //中断分组配置
-	uart_init(115200);    //串口波特率设置
 	LED_Init();         //LED初始化
+	LED0 = 1;
+	LED1 = 1;
+	
+	uart_init(115200);    //串口波特率设置
+	
 	//KEY_Init();
 	EXTIX_Init();
 	USART2_Init(115200);
-	LED0 = 1;
-	LED1 = 1;
+	
 	useCount = 0;
 	printf("hw init end\r\n");
 	
@@ -241,7 +244,7 @@ void start_task(void *p_arg)
 */
 	OSTmrCreate((OS_TMR		*)&tmr1,		//定时器1
                 (CPU_CHAR	*)"tmr1",		//定时器名字
-                (OS_TICK	 )1000,			//0ms
+                (OS_TICK	 )2000,			//0ms
                 (OS_TICK	 )0,        
                 (OS_OPT		 )OS_OPT_TMR_ONE_SHOT,
                 (OS_TMR_CALLBACK_PTR)tmr1_callback,//定时器1回调函数
@@ -399,7 +402,7 @@ void main_task(void *p_arg)
 	while(1)
 	{
 		printf("[%d]main task wait ...\r\n", OSTimeGet(&err));
-		LED0 = 0;
+		
 		/*
 		flags = OSFlagPend((OS_FLAG_GRP*)&EventFlags,
 		       (OS_FLAGS	)KEYWKUP_HIGH_FLAG + KEYWKUP_LOW_FLAG + RTC_UPDATE_FLAG,
@@ -428,22 +431,26 @@ void main_task(void *p_arg)
 			  if(deviceWorking == 0){
 				  deviceWorking = 1;
 					gprs_Buf=OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
-					printf("gprs_buf allocate %x \r\n", (u32)gprs_Buf);
-			    memset(gprs_Buf, 0, GPRS_MEMBLOCK_SIZE);
-			    useCount++;
-			    gprs_Buf[0]=0x55;
-			    gprs_Buf[1]=0xAA;
-			    gprs_Buf[2]=0x81;
-			    gprs_Buf[3]=(useCount & 0xFF00) >>8;
-			    gprs_Buf[4]=(useCount & 0x00FF);
-			    memcpy(gprs_Buf+5, iccidInfo, 20);
-			    printf("gprs buf-1 %s \r\n", gprs_Buf+5);
-		      RTC_Get();
-			    printf("%d/%02d/%02d %02d:%02d:%02d\r\n", calendar.w_year, calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
-			    sprintf((char*)(gprs_Buf+25),"%02d/%02d/%02d,%02d/%02d/%02d+00",calendar.w_year>2000?(calendar.w_year-2000):calendar.w_year,
-			    calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
-			    start_time = calendar;
-			    printf("gprs buf-2 %s \r\n", gprs_Buf+5);
+					if(gprs_Buf != 0){
+					  printf("gprs_buf allocate %x \r\n", (u32)gprs_Buf);
+			      memset(gprs_Buf, 0, GPRS_MEMBLOCK_SIZE);
+			      useCount++;
+			      gprs_Buf[0]=0x55;
+			      gprs_Buf[1]=0xAA;
+			      gprs_Buf[2]=0x81;
+			      gprs_Buf[3]=(useCount & 0xFF00) >>8;
+			      gprs_Buf[4]=(useCount & 0x00FF);
+			      memcpy(gprs_Buf+5, iccidInfo, 20);
+			      printf("gprs buf-1 %s \r\n", gprs_Buf+5);
+		        RTC_Get();
+			      printf("%d/%02d/%02d %02d:%02d:%02d\r\n", calendar.w_year, calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
+			      sprintf((char*)(gprs_Buf+25),"%02d/%02d/%02d,%02d/%02d/%02d+00",calendar.w_year>2000?(calendar.w_year-2000):calendar.w_year,
+			      calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
+			      start_time = calendar;
+			      printf("gprs buf-2 %s \r\n", gprs_Buf+5);
+				  }else{
+					  printf("ooo memeory \r\n");
+					}
 				}
 				break;
 			}
@@ -453,10 +460,15 @@ void main_task(void *p_arg)
 				  deviceWorking = 0;
 		      RTC_Get();
 			    printf("%d/%d/%d %d:%d:%d\r\n", calendar.w_year, calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
-			    sprintf((char*)(gprs_Buf+45),"%02d/%02d/%02d,%02d/%02d/%02d+00",calendar.w_year>2000?(calendar.w_year-2000):calendar.w_year,
-			    calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
-			    end_time = calendar;
-			    postGprsSendMessage(&gprs_Buf);
+			    if(gprs_Buf != 0){
+					  sprintf((char*)(gprs_Buf+45),"%02d/%02d/%02d,%02d/%02d/%02d+00",calendar.w_year>2000?(calendar.w_year-2000):calendar.w_year,
+			      calendar.w_month,calendar.w_date,calendar.hour,calendar.min,calendar.sec);
+			      end_time = calendar;
+			      postGprsSendMessage(&gprs_Buf);
+				  }else{
+					  printf("ooo memeory \r\n");
+					}
+					
 				}
 				break;
 			}
@@ -488,6 +500,7 @@ void main_task(void *p_arg)
 				  hour = hour >= 24 ? (hour - 24):hour;
 			    RTC_Set(year, buf[1],buf[2], hour, buf[4], buf[5]);
 				  printf("ntp set over ok \r\n");
+					LED1 = 0;
 			  }else{
 				  printf("get ntp time fail ,try again \r\n");
 			    OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
@@ -541,10 +554,11 @@ void modem_task(void *p_arg)
 		printf("try SIM800C again \r\n");
 	}
 	
+	LED0 = 0;
 	printf("SIM800C onsite \r\n");
 	
 	ret = getCCID(iccidInfo);
-	printf("ccid %x %x %x %x \r\n", iccidInfo[0], iccidInfo[1], iccidInfo[18], iccidInfo[19]);
+	//printf("ccid %x %x %x %x \r\n", iccidInfo[0], iccidInfo[1], iccidInfo[18], iccidInfo[19]);
 	
   while(checkGPRSEnv() != 0){		
     OSTimeDlyHMSM(0,0,3,0,OS_OPT_TIME_PERIODIC,&err);
@@ -1027,13 +1041,13 @@ u8 check_modemTaskMsg_queue(void)
 void ntpProcess(u8 * buf){
 	OS_ERR err;
 	
-	printf("ntpProcess ...\r\n");
+	printf("ntpProcess delay 1s to get ntp time...\r\n");
 	
   if(ntp_update() == 0) {
-		OSTimeDlyHMSM(0,0,5,0,OS_OPT_TIME_PERIODIC,&err);
+		OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
 		memset(buf, 0, INTERNAL_MEMBLOCK_SIZE);
 		if(fetchNetworkTime(buf) == 0){
-	    printf("%d/%d/%d %d:%d:%d\r\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+	    //printf("%02d/02%d/02%d %02d:%02d:%02d\r\n", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
 			if(buf[0] < 18){
 			  printf("ntp time is wrong, try ntp again \r\n");
 				OSTmrStart(&tmr_ntp,&err);
