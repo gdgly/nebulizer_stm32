@@ -285,7 +285,6 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 			
 		  delay_ms(10);
 		  count++;//we can not wait too long, 3s at most
-			//printf("loop %d \r\n", count);;
     }
 
 	  if(recvFlag != 2){

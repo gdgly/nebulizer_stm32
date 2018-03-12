@@ -132,6 +132,9 @@ u8 testFlag = 0;
 //Find the biggest Index to get the latest gprs data info, check the DataNum, if DataNum is 0, DataPtr should be the start ptr of next saving
 
 
+u8 IsLeap(u16 year);
+u16 DayInYear(_calendar_obj* pDate);
+u16 DaysBetween2Date(_calendar_obj* pDate1, _calendar_obj* pDate2);
 
 int main(void)
 {
@@ -143,9 +146,7 @@ int main(void)
 	LED_Init();         //LED初始化
 	LED0 = 1;
 	LED1 = 1;
-	
 	uart_init(115200);    //串口波特率设置
-	
 	//KEY_Init();
 	EXTIX_Init();
 	USART2_Init(115200);
@@ -500,6 +501,7 @@ void main_task(void *p_arg)
 				  hour = hour >= 24 ? (hour - 24):hour;
 			    RTC_Set(year, buf[1],buf[2], hour, buf[4], buf[5]);
 				  printf("ntp set over ok \r\n");
+					g_ntpUpdateFlag = 1;
 					LED1 = 0;
 			  }else{
 				  printf("get ntp time fail ,try again \r\n");
@@ -527,6 +529,87 @@ void main_task(void *p_arg)
 		OSMemPut((OS_MEM*	)&MESSAGE_MEM, (void*)pMsg, (OS_ERR*)&err);
 		
 	}
+}
+
+u32 diffTime(u16 syear,u8 smon,u8 sday,u8 hour,u8 min,u8 sec)
+{
+	_calendar_obj time2;
+	_calendar_obj time1;
+	int diffDays = 0;
+	
+	time2.w_year = syear;
+	time2.w_month = smon;
+	time2.w_date = sday;
+	time2.hour = hour;
+	time2.min = min;
+	time2.sec = sec;
+	
+	RTC_Get();
+	time1 = calendar;
+	
+  diffDays = DaysBetween2Date(&time1, &time2);
+	
+}
+
+
+
+u8 IsLeap(u16 year)  
+{  
+    return (year % 4 ==0 || year % 400 ==0) && (year % 100 !=0);  
+}  
+
+u16 DayInYear(_calendar_obj* pDate)  
+{  
+    int iRet = 0;  
+    int DAY[12]={31,28,31,30,31,30,31,31,30,31,30,31};  
+    if(IsLeap(pDate->w_year))  
+        DAY[1] = 29;  
+    for(int i=0; i < pDate->w_month - 1; ++i)  
+    {  
+        iRet += DAY[i];  
+    }  
+    return iRet;  
+}  
+  
+u16 DaysBetween2Date(_calendar_obj* pDate1, _calendar_obj* pDate2)  
+{  
+    
+    _calendar_obj *pTmp;  
+  
+    if(pDate1->w_year == pDate2->w_year && pDate1->w_month == pDate2->w_month)  
+    {  
+        return abs(pDate1->w_date - pDate2->w_date);  
+    }  
+    else if(pDate1->w_year == pDate2->w_year) 
+    {  
+        return abs(DayInYear(pDate1) - DayInYear(pDate2));  
+    }  
+    else
+    {  
+        int d1,d2,d3;  
+  
+        if(pDate1->w_year > pDate2->w_year){  
+            pTmp = pDate1;  
+            pDate1 = pDate2;  
+            pDate1 = pTmp;  
+        }  
+  
+        if(IsLeap(pDate1->w_year))  
+            d1 = 366 - DayInYear(pDate1);
+        else  
+            d1 = 365 - DayInYear(pDate1);  
+        d2 = DayInYear(pDate2);
+          
+        d3 = 0;  
+        for(int year = pDate1->w_year + 1; year < pDate2->w_year; year++)  
+        {  
+            if(IsLeap(year))  
+                d3 += 366;  
+            else  
+                d3 += 365;  
+        }  
+        return d1 + d2 + d3;  
+    }  
 }
 
 
