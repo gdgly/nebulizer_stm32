@@ -47,7 +47,7 @@ void EXTIX_Init(void)
   	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;	
   	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling;
   	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-  	EXTI_Init(&EXTI_InitStructure);	  	//¸ù¾ÝEXTI_InitStructÖÐÖ¸¶¨µÄ²ÎÊý³õÊ¼»¯ÍâÉèEXTI¼Ä´æÆ
+  	EXTI_Init(&EXTI_InitStructure);	  	//¸ù¾ÝEXTI_InitStructÖÐÖ¸¶¨µÄ²ÎÊý³õÊ¼»¯ÍâÉèEXTI¼Ä´æ?
 		
 		    //GPIOA.0	
   	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA,GPIO_PinSource0);
@@ -87,7 +87,7 @@ void EXTIX_Init(void)
 	if(KEY0 == 0) {
 		//LED0 = 0;
 		printf("[%d]key0 pressed\r\n", OSTimeGet(&err));
-		postKeyEvent(0);
+		postKeyEvent(KEY0_FLAG);
   }
  	EXTI_ClearITPendingBit(EXTI_Line5);    //Çå³ýLINE5ÉÏµÄÖÐ¶Ï±êÖ¾Î»  
 
@@ -104,7 +104,7 @@ void EXTI15_10_IRQHandler(void)
   if(KEY1==0)	{
 		//LED1 = 0;
 		printf("[%d]key1 pressed\r\n", OSTimeGet(&err));
-		postKeyEvent(1);
+		postKeyEvent(KEY1_FLAG);
 	}
 	
 	EXTI_ClearITPendingBit(EXTI_Line15);  //Çå³ýLINE15ÏßÂ·¹ÒÆðÎ»
@@ -120,10 +120,10 @@ void EXTI0_IRQHandler(void)
 	if(WK_UP==1)
 	{	  
 		printf("[%d]key wakeup pressed\r\n", OSTimeGet(&err));
-		postKeyEvent(3);
+		postKeyEvent(KEYWKUP_HIGH_FLAG);
 	}else if(WK_UP==0){
   	printf("[%d]key wakeup released\r\n", OSTimeGet(&err));
-		postKeyEvent(2);
+		postKeyEvent(KEYWKUP_LOW_FLAG);
 	}
 	
 	EXTI_ClearITPendingBit(EXTI_Line0);

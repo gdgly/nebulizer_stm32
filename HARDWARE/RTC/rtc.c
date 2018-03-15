@@ -138,6 +138,79 @@ u8 RTC_Set(u16 syear,u8 smon,u8 sday,u8 hour,u8 min,u8 sec)
 	RTC_Get();
 	return 0;	    
 }
+
+
+u8 RTC_Shift(int diffSec, _calendar_obj * inputTime)
+{
+	u16 t;
+	u32 seccount=0;
+	//static u16 shiftdaycnt=0;
+	u32 temp=0;
+	u16 temp1=0;
+	if(inputTime->w_year<1970||inputTime->w_year>2099)return 1;	   
+	for(t=1970;t<inputTime->w_year;t++)	//把所有年份的秒钟相加
+	{
+		if(Is_Leap_Year(t))seccount+=31622400;//闰年的秒钟数
+		else seccount+=31536000;			  //平年的秒钟数
+	}
+	inputTime->w_month-=1;
+	for(t=0;t<inputTime->w_month;t++)	   //把前面月份的秒钟数相加
+	{
+		seccount+=(u32)mon_table[t]*86400;//月份秒钟数相加
+		if(Is_Leap_Year(inputTime->w_year)&&t==1)seccount+=86400;//闰年2月份增加一天的秒钟数	   
+	}
+	seccount+=(u32)(inputTime->w_date-1)*86400;//把前面日期的秒钟数相加 
+	seccount+=(u32)inputTime->hour*3600;//小时秒钟数
+  seccount+=(u32)inputTime->min*60;	 //分钟秒钟数
+	seccount+=inputTime->sec;//最后的秒钟加上去
+
+	seccount += diffSec;
+	
+	
+	temp=seccount/86400;   //得到天数(秒钟数对应的)
+	//if(shiftdaycnt!=temp)//超过一天了
+	{	  
+		//shiftdaycnt=temp;
+		temp1=1970;	//从1970年开始
+		while(temp>=365)
+		{				 
+			if(Is_Leap_Year(temp1))//是闰年
+			{
+				if(temp>=366)temp-=366;//闰年的秒钟数
+				else {temp1++;break;}  
+			}
+			else temp-=365;	  //平年 
+			temp1++;  
+		}   
+		inputTime->w_year=temp1;//得到年份
+		temp1=0;
+		while(temp>=28)//超过了一个月
+		{
+			if(Is_Leap_Year(inputTime->w_year)&&temp1==1)//当年是不是闰年/2月份
+			{
+				if(temp>=29)temp-=29;//闰年的秒钟数
+				else break; 
+			}
+			else 
+			{
+				if(temp>=mon_table[temp1])temp-=mon_table[temp1];//平年
+				else break;
+			}
+			temp1++;  
+		}
+		inputTime->w_month=temp1+1;	//得到月份
+	  inputTime->w_date=temp+1;  	//得到日期 
+	}
+	
+	temp=seccount%86400;     		//得到秒钟数   	   
+	inputTime->hour=temp/3600;     	//小时
+	inputTime->min=(temp%3600)/60; 	//分钟	
+	inputTime->sec=(temp%3600)%60; 	//秒钟
+	inputTime->week=RTC_Get_Week(inputTime->w_year,inputTime->w_month,inputTime->w_date);//获取星期   
+	
+	return 0;	    
+}
+
 //得到当前的时间
 //返回值:0,成功;其他:错误代码.
 u8 RTC_Get(void)
@@ -186,6 +259,8 @@ u8 RTC_Get(void)
 	calendar.min=(temp%3600)/60; 	//分钟	
 	calendar.sec=(temp%3600)%60; 	//秒钟
 	calendar.week=RTC_Get_Week(calendar.w_year,calendar.w_month,calendar.w_date);//获取星期   
+	
+	
 	return 0;
 }	 
 //获得现在是星期几

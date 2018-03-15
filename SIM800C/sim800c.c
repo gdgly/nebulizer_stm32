@@ -165,7 +165,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	u8 recv[SERVER_RES_LEN+1] = {0};
 	u8 i=0,length=0,j=0,recvFlag=0;
 	u16 count =0;
-	SIM800_ERROR ret = 0;
+	SIM800_ERROR ret = AT_OK;
 	printf("sim8ooc_gprs_tcp \r\n");
 	
 	if(sim800c_send_cmd("AT+CGCLASS=\"B\"","OK",1000)){
@@ -195,7 +195,9 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	
 	if(sim800c_send_cmd("AT+CLPORT=\"TCP\",\"2000\"","OK",1000)){
 	  printf("clport fail \r\n");
-    return AT_FAIL;
+		
+    ret = AT_FAIL;
+		goto end;
 	}
 	
 		
@@ -234,7 +236,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		
 		USART2_RX_STA = 0;
 		
-    while((i < SERVER_RES_LEN) && (count < 1000)){
+    while((i < SERVER_RES_LEN) && (count < 500)){
 	    if(USART2_RX_STA & 0x8000){
 		    p1 = USART2_RX_BUF;
 			  length = USART2_RX_STA&0x7FFF;
@@ -322,6 +324,8 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		printf("cancel send, send fail \r\n");
 		ret = AT_GPRS_SEND_FAIL;
 	}
+
+end:
 	
   printf("cipclose ...\r\n");	
   if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",2000)){
@@ -403,7 +407,7 @@ u16 sim800c_gprs_transparentMode(u8* content, u16 len)
   USART2_RX_STA = 0;
 	u2_hexsend(content, len);
 	
-	while((i < SERVER_RES_LEN) && (count < 100)){
+	while((i < SERVER_RES_LEN) && (count < 1000)){
 	  if(USART2_RX_STA & 0x8000){
 		  p1 = USART2_RX_BUF;
 			length = USART2_RX_STA&0x7FFF;
@@ -449,7 +453,7 @@ u16 sim800c_gprs_transparentMode(u8* content, u16 len)
 			}
 			
 	  }
-		delay_ms(100);
+		delay_ms(10);
 		count++;//we can not wait too long, 3s at most
   }
 	
@@ -577,21 +581,21 @@ u8 ntp_update(void)
 	   printf("ntp fail step 1 \r\n");
 		 return 1;
    }else{
-	   printf("ntp step 1 ok\r\n");
+	   //printf("ntp step 1 ok\r\n");
 	 }
 	 
 	 if(sim800c_send_cmd("AT+SAPBR=3,1,\"APN\",\"CMNET\"","OK",200)){
 	   printf("ntp fail step 2 \r\n");
 		 return 2;
 	 }else{
-	   printf("ntp step 2 ok\r\n");
+	   //printf("ntp step 2 ok\r\n");
 	 }
 	 
 	 if(sim800c_send_cmd("AT+SAPBR=1,1",0,200)){
 	   printf("ntp fail step 3 \r\n");
 		 return 3;
 	 }else{
-	   printf("ntp step 3 ok\r\n");
+	   //printf("ntp step 3 ok\r\n");
 	 }
    
 	 delay_ms(5);
@@ -601,7 +605,7 @@ u8 ntp_update(void)
 		 ret = 4;
 		 goto end;
 	 }else{
-	   printf("ntp step 4 ok\r\n");
+	   //printf("ntp step 4 ok\r\n");
 	 }
 	 //sim800c_send_cmd("AT+CNTP=\"202.120.2.101\",32","OK",200);     //设置NTP服务器和本地时区(32时区 时间最准确)
 	 
@@ -639,7 +643,7 @@ u8 ntp_update(void)
 			 }
 		 }
 	 }else{
-	   printf("ntp step 6 ok\r\n");
+	   //printf("ntp step 6 ok\r\n");
 	 }
 	 
 	 if(sim800c_send_cmd("AT+SAPBR=0,1",0,800)){
@@ -662,7 +666,7 @@ end:
 
 u8 fetchNetworkTime(u8* pTime){
 	u8 *p1, *p2, *p;
-	u8 ret = 0, value, i;
+	u8 ret = 0, value;
 	
 	p = pTime;
 	printf("fetch network time ...\r\n");
@@ -744,7 +748,7 @@ u8 fetchNetworkTime(u8* pTime){
 		}
 		*/
 		
-		printf("\r\n");
+		//printf("\r\n");
 		USART2_RX_STA=0;		
 	} else {
 		printf("fail to get CCLK\r\n");
@@ -891,7 +895,7 @@ u8 queryCSQ(){
 
 u8 queryCellId(u8* id, u8* neighborId){
 	u8 ret = 1;
-	u8 *p1,*p2;
+	u8 *p1;
 	//AT+CSQ
 	//+CSQ: 24,0
 	memset(id, 18, 0);
