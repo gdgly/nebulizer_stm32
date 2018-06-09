@@ -47,7 +47,16 @@ void EXTIX_Init(void)
   	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;	
   	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling;
   	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-  	EXTI_Init(&EXTI_InitStructure);	  	//∏˘æ›EXTI_InitStruct÷–÷∏∂®µƒ≤Œ ˝≥ı ºªØÕ‚…ËEXTIºƒ¥Ê?
+  	EXTI_Init(&EXTI_InitStructure);	  	//∏˘æ›EXTI_InitStruct÷–÷∏∂®µƒ≤Œ ˝≥ı ºªØÕ‚…ËEXTIºƒ¥Ê∆
+		
+		//GPIOA.7	  ÷–∂œœﬂ“‘º∞÷–∂œ≥ı ºªØ≈‰÷√
+  	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA,GPIO_PinSource7);
+
+  	EXTI_InitStructure.EXTI_Line=EXTI_Line7;
+  	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;	
+  	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling;
+  	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+  	EXTI_Init(&EXTI_InitStructure);	  	//∏˘æ›EXTI_InitStruct÷–÷∏∂®µƒ≤Œ ˝≥ı ºªØÕ‚…ËEXTIºƒ¥Ê∆
 		
 		    //GPIOA.0	
   	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA,GPIO_PinSource0);
@@ -69,7 +78,9 @@ void EXTIX_Init(void)
   	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02;	//«¿’º”≈œ»º∂2£¨ 
   	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x00;					//◊””≈œ»º∂1
   	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;								// πƒ‹Õ‚≤ø÷–∂œÕ®µ¿
-  	NVIC_Init(&NVIC_InitStructure); 
+  	NVIC_Init(&NVIC_InitStructure);
+		
+
 		
   	NVIC_InitStructure.NVIC_IRQChannel = EXTI0_IRQn;			//?????????????
   	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02;	//?????2 
@@ -84,12 +95,26 @@ void EXTIX_Init(void)
 	
 	OSIntEnter();
 	delay_ms(10);   //œ˚∂∂			 
+	
+	/*
 	if(KEY0 == 0) {
 		//LED0 = 0;
 		printf("[%d]key0 pressed\r\n", OSTimeGet(&err));
 		postKeyEvent(KEY0_FLAG);
   }
- 	EXTI_ClearITPendingBit(EXTI_Line5);    //«Â≥˝LINE5…œµƒ÷–∂œ±Í÷æŒª  
+	*/
+	
+  if(INT_DETECT==1)
+	{	  
+		printf("[%d] INT High Level detect\r\n", OSTimeGet(&err));
+		postKeyEvent(KEYWKUP_HIGH_FLAG);
+	}else if(INT_DETECT==0){
+  	printf("[%d] INT LOW Level detect\r\n", OSTimeGet(&err));
+		postKeyEvent(KEYWKUP_LOW_FLAG);
+	}
+	
+	
+ 	EXTI_ClearITPendingBit(EXTI_Line7);    //«Â≥˝LINE5…œµƒ÷–∂œ±Í÷æŒª  
 
 	OSIntExit();  											 
 

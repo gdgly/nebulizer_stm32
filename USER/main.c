@@ -60,7 +60,7 @@ void main_task(void *p_arg);
 //任务优先级
 #define MODEM_TASK_PRIO		6
 //任务堆栈大小	
-#define MODEM_STK_SIZE 		384
+#define MODEM_STK_SIZE 		512
 //任务控制块
 OS_TCB ModemTaskTCB;
 //任务堆栈	
@@ -76,7 +76,7 @@ void tmr1_callback(void *p_tmr,void *p_arg); //定时器1回调函数
 void tmr_ntp_callback(void *p_tmr,void *p_arg); //定时器1回调函数
 
 
-OS_MUTEX	NTP_MUTEX;
+OS_MUTEX	FLASH_MUTEX;
 
 OS_MEM INTERNAL_MEM;	
 //存储区中存储块数量
@@ -101,7 +101,7 @@ CPU_INT08U Message_RamMemp[MESSAGE_MEM_NUM][MESSAGE_MEMBLOCK_SIZE];
 
 OS_MEM GPRS_MEM;	
 //存储区中存储块数量
-#define GPRS_MEM_NUM		5
+#define GPRS_MEM_NUM		8
 //每个存储块大小
 //由于一个指针变量占用4字节所以块的大小一定要为4的倍数
 //而且必须大于一个指针变量(4字节)占用的空间,否则的话存储块创建不成功
@@ -111,8 +111,9 @@ CPU_INT08U Gprs_RamMemp[GPRS_MEM_NUM][GPRS_MEMBLOCK_SIZE];
 
 
 u16 useCount = 0;
-
+int g_loopSendMsgNum = 0;
 u8 g_ntpUpdateFlag = 0;
+u8 g_gprsWorkFlag = 0;
 int g_diffTime = 0;
 
 u16 ntp_year;
@@ -125,17 +126,21 @@ u8 endTime[20] = {0};
 
 u8 g_oldNumInFlash  = 0;
 
+
 #define INFO_TRUNK_SIZE      64
-#define GPRS_SAVE_INFO_ADDR  0x08030000  
-#define GRPS_SAVE_START_ADDR  0x08030800
-#define GPRS_SAVE_END_ADDR   0x08032800
+#define GPRS_SAVE_INFO_START_ADDR  0x08030000
+#define GRPS_SAVE_INFO_END_ADDR    0x08030800
+#define GRPS_SAVE_START_ADDR       0x08030800
+#define GPRS_SAVE_END_ADDR         0x08032800
+#define GPRS_SAVE_COUNT_START_ADDR 0x08032800
+#define GPRS_SAVE_COUNT_END_ADDR   0x08033000
 
 u8 testFlag = 0;
-//Page 0 : 2K  => Data Info 8 bytes [Index][DataNum][Xor][DataPtr]
-//Page 1 
+//Page n : 2K  => Data Info 8 bytes [Index][DataNum][Xor][DataPtr]
+//Page n+1 
 // Loop use from page 1 to 14
-//Page 14:
-//Page 15: 2K  => Data Info 8 bytes [Index][DataNum][DataPtr] copy of page 0
+//Page n+4:
+//Page n+5: 2K  => Count Info 4 bytes [Index][CountNum]
 
 //Loop use page 0 to save Index info
 //Find the biggest Index to get the latest gprs data info, check the DataNum, if DataNum is 0, DataPtr should be the start ptr of next saving
@@ -164,7 +169,19 @@ void main_task(void *p_arg)
 	
 	testFlag = 0;
 	
+	g_loopSendMsgNum = 0;
 	
+	if(getNumInFlash(&g_oldNumInFlash) == 0){
+	  printf(" %d old record in flash \r\n", g_oldNumInFlash);   			 
+			
+	}else{
+		printf(" boot fail to get num in flash\r\n ");   			  
+	  g_oldNumInFlash = 0;
+	} 
+	
+	useCount  = getCountFromFlash();
+	
+	printf(" useCount from flash is %d\r\n ", useCount);   
 	
 	while(1)
 	{
@@ -193,10 +210,11 @@ void main_task(void *p_arg)
 		printf("[%d]main task notified by %x, size %d, msg queue left %d\r\n", OSTimeGet(&err), *pMsg, size, check_mainTaskMsg_queue());
 		
 		switch(*pMsg){
-		  case KEYWKUP_HIGH_FLAG:
+		  case KEYWKUP_LOW_FLAG:
 			{
 			  if(deviceWorking == 0){
 				  deviceWorking = 1;
+					LED0 =0;
 					gprs_Buf=OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
 					if(gprs_Buf != 0){
 					  printf("gprs_buf allocate %x \r\n", (u32)gprs_Buf);
@@ -222,16 +240,18 @@ void main_task(void *p_arg)
 						//OSMutexPost(&NTP_MUTEX,OS_OPT_POST_NONE,&err);
 			      printf("gprs buf %s \r\n", gprs_Buf+5);
 				  }else{
-					  printf("ooo memeory \r\n");
+						deviceWorking = 0;
+						LED0 = 1;
+					  printf("key start ooo GPRS memeory \r\n");
 					}
 				}
 				break;
 			}
-			case KEYWKUP_LOW_FLAG:
+			case KEYWKUP_HIGH_FLAG:
 			{
 				if(deviceWorking == 1){
 				  deviceWorking = 0;
-		      
+		      LED1 = 0;
 			    if(gprs_Buf != 0){
 						//OSMutexPend (&NTP_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
 						RTC_Get();
@@ -260,9 +280,23 @@ void main_task(void *p_arg)
 						printf("duration is %d \r\n", diffTimeInSecs(start_time, end_time));
 						
 						//OSMutexPost(&NTP_MUTEX,OS_OPT_POST_NONE,&err);
-			      postGprsSendMessage(&gprs_Buf);
+			      if(g_gprsWorkFlag == 1){
+						   postGprsSendMessage(&gprs_Buf);
+						}else{
+							 sprintf((char*)(gprs_Buf+65),"%03d,%02d,%04d,%04d,",0,0,0,0);
+							 sprintf((char*)(gprs_Buf+82),"%03d,%02d,%04d,%04d,",0,0,0,0);
+							 gprs_Buf[99] = xorVerify(gprs_Buf+2, 97);
+							 OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
+						   saveToFlash(gprs_Buf);
+							 OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)gprs_Buf, (OS_ERR*)&err);
+							 OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
+							 
+						}
+						OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
+						increaseCntAtFlash();
+						OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
 				  }else{
-					  printf("ooo memeory \r\n");
+					  printf("key stop ooo GPRS memeory \r\n");
 					}
 					
 				}
@@ -271,11 +305,11 @@ void main_task(void *p_arg)
 			case TIMER_FLAG :
 			{
 				if(testFlag == 0){
-				  postKeyEvent(KEYWKUP_HIGH_FLAG);
+				  postKeyEvent(KEYWKUP_LOW_FLAG);
 					testFlag = 1;
 					OSTmrStart(&tmr1,&err);
 				}else if(testFlag == 1){
-				  postKeyEvent(KEYWKUP_LOW_FLAG);
+				  postKeyEvent(KEYWKUP_HIGH_FLAG);
 					testFlag = 0;
 					OSTmrStart(&tmr1,&err);
 					//printf("try once only");
@@ -312,7 +346,10 @@ void main_task(void *p_arg)
 			    RTC_Set(year, buf[1],buf[2], hour, buf[4], buf[5]);
 				  printf("ntp set over ok \r\n");
 					g_ntpUpdateFlag = 1;
-					LED1 = 0;
+					LED1 = 1;
+					
+					//postKeyEvent(KEY0_FLAG);
+					
 			  }else{
 				  printf("get ntp time fail ,try again \r\n");
 			    OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
@@ -324,7 +361,7 @@ void main_task(void *p_arg)
 			}
 			case KEY0_FLAG:
 			{
-				postKeyEvent(KEYWKUP_HIGH_FLAG);
+				postKeyEvent(KEYWKUP_LOW_FLAG);
 	      OSTmrStart(&tmr1,&err);
 				testFlag = 1;
 				//postGprsSendSaveDataMessage();
@@ -341,6 +378,18 @@ void main_task(void *p_arg)
 				//}
 				//OSMemPut((OS_MEM*	)&INTERNAL_MEM, (void*)buf, (OS_ERR*)&err);
 				//OSTmrStart(&tmr_loopsend, &err);
+				/*
+				gprs_Buf=OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
+				for(i = 0; i < 90 ; i++){
+					*gprs_Buf = i;
+				  ret = saveToFlash(gprs_Buf);
+					if(ret != 0){
+					  stopAutoTest();
+					}
+					OSTimeDlyHMSM(0,0,2,0,OS_OPT_TIME_PERIODIC,&err);
+				}
+				OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)gprs_Buf, (OS_ERR*)&err);
+				*/
 				break;
 			}
 			default:
@@ -362,58 +411,54 @@ void modem_task(void *p_arg)
 	OS_ERR err;
 	CPU_INT08U *buf;
 	CPU_INT08U *flashTestBuf;
-	u8 ret, i=0;
+	u8 ret;
+	u16 i=0;
 	u8 *pMsg;
 	OS_MSG_SIZE size;
 	
 	p_arg = p_arg;
 	
   buf=OSMemGet((OS_MEM*)&INTERNAL_MEM, (OS_ERR*)&err);
-		
-	while(i < 15){
-	  OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
-		printf(" %d secs\r\n", 15-i);
-		i++;
-	}
 	
-	RTC_Set(2005, 12, 31, 23, 59, 57);
+  SIM800Power = 1;	
+	
+//	OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
+	
+//	RTC_Set(2005, 12, 31, 23, 59, 57);
 	
 	while(checkSIM800HW() != 0){
 		OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
 		printf("try SIM800C again \r\n");
 	}
-	
-	LED0 = 0;
+			
+	LED0 = 1;
 	printf("SIM800C onsite \r\n");
 	
 	ret = getCCID(iccidInfo);
 	//printf("ccid %x %x %x %x \r\n", iccidInfo[0], iccidInfo[1], iccidInfo[18], iccidInfo[19]);
 	
   while(checkGPRSEnv() != 0){		
-    OSTimeDlyHMSM(0,0,3,0,OS_OPT_TIME_PERIODIC,&err);
+    OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
     printf("try GPRS env again \r\n");
   }
+	
+	SIM800Power = 0;
 	
   printf("signal ok, registered, gprs attached \r\n");
 
 //NTP Test, mark off auto , manullay trigger	
+		
+	//ntpProcess(buf);
+	postTimerMessage(2);
+  g_gprsWorkFlag = 1;
 	
-	if(fetchNetworkTime(buf) == 0){
-	  printf("%d/%d/%d %d:%d:%d\r\n", buf[0], buf[1],buf[2], buf[3], buf[4], buf[5]);
-	}
-	
-	ntpProcess(buf);
-	
-  if(getNumInFlash(&g_oldNumInFlash) == 0){
-	  printf(" %d old record in flash \r\n", g_oldNumInFlash);   			 
-    if(g_oldNumInFlash > 0 ){
+	if(getNumInFlash(&ret) == 0){
+	  printf(" %d num in flash after GPRS attach \r\n", ret);   			 
+		if(ret > 0){
 		  postGprsSendSaveDataMessage();
 		}			
-	}else{
-		printf(" boot fail to get num in flash\r\n ");   			  
-	  g_oldNumInFlash = 0;
-	} 
-	
+	}
+				
 	while(1){
 		printf("[%d]modem task wait ...\r\n", OSTimeGet(&err));
 		
@@ -426,6 +471,10 @@ void modem_task(void *p_arg)
 		if(err != OS_ERR_NONE){
 			printf("modem tsk pend wrong %x \r\n", err);
 		  continue;
+		}
+		
+		if(*pMsg == GRPS_SEND_SAVEDATA_FLAG){
+		  g_loopSendMsgNum--;			
 		}
 		
 		printf("[%d]modem task notified by %x, size %d, msg queue left %d\r\n", OSTimeGet(&err), *pMsg, size, check_modemTaskMsg_queue());
@@ -476,9 +525,30 @@ void modem_task(void *p_arg)
 				pMsg[0] = 0x55;
 			  aterr = sim800c_gprs_tcp(pMsg, 100);
 				if(aterr == AT_OK){
-				  OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
+					u8 num = 0;
+				  LED0 = 1;
+					LED1 = 1;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 0;
+					LED1 = 0;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 1;
+					LED1 = 1;
+					
+					OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
+					
+					OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
+				  if(getNumInFlash(&num) == 0){
+				  }else{
+				    num = 0;
+				  }
+				  OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
+          if(num > 0) {					
+					  postGprsSendSaveDataMessage();
+					}
+					
 				}else{
-					printf(" flash open and resend close \r\n");
+					printf(" flash open and resend  \r\n");
 					//OSTmrStop(&tmr1,OS_OPT_TMR_NONE,0,&err);
 					//testFlag = 3;
 					if(flag == GPRS_NTPOK_SEND_FLAG){
@@ -486,10 +556,24 @@ void modem_task(void *p_arg)
 					}else if(flag == GPRS_NTPFAIL_SEND_FLAG){
 					  *pMsg = GPRS_NTPFAIL_TRY_SECOND;
 					}
+					LED0 = 1;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 0;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 1;
+				
 					
+					/*
 					ret = saveToFlash(pMsg);
+					if(ret != 0){
+					  stopAutoTest();
+					}
+					
+					
 					OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
-					//postGprsSendMessage(&pMsg);
+					
+					*/
+					postGprsSendMessage(&pMsg);
 					//OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
 				}
 				break;
@@ -513,13 +597,26 @@ void modem_task(void *p_arg)
 				  OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
 					//OSTmrStart(&tmr1, &err);
 					//testFlag = 0;
+					LED0 = 1;
+					LED1 = 1;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 0;
+					LED1 = 0;
+					OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					LED0 = 1;
+					LED1 = 1;
 				}else{
 					*pMsg = flag;
+					OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
 					ret = saveToFlash(pMsg);
 					OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)pMsg, (OS_ERR*)&err);
-					//OSTmrStart(&tmr_loopsend, &err);
-					printf("do not repeat send save data \r\n");
+					OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
+					OSTmrStart(&tmr_loopsend, &err);
+					printf("start repeat send save data \r\n");
+					LED0 = 1;
+				  LED1 = 1;
 				}
+				
 				break;
 			}
 			
@@ -528,62 +625,286 @@ void modem_task(void *p_arg)
 				SIM800_ERROR aterr;
 				u32 infoAddr;
 				u8 infoContent[8];
-				u8 i = 0, num;
+				u8 i = 0, num = 0;
 				
+				OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
 				if(getNumInFlash(&num) == 0){
 				  
 				}else{
 				   num = 0;
 				}
-							
+				OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);			
 				printf("total num is %d, old num is %d \r\n", num, g_oldNumInFlash);
 				
-				flashTestBuf = OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
-        //for(i=0; i< num; i++) {				
-				  	
-				ret = readFromFlash(flashTestBuf, &infoAddr, infoContent);
-				printf("@@@ flash read test return %d , 1st byte %x\r\n", ret, *flashTestBuf);
+				if(num > 0) {
+				  flashTestBuf = OSMemGet((OS_MEM*)&GPRS_MEM, (OS_ERR*)&err);
+					if(flashTestBuf != 0){
+         	  OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
+				    ret = readFromFlash(flashTestBuf, &infoAddr, infoContent);
+					  OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
+				    printf("@@@ flash read test return %d , 2 byte %x %x\r\n", ret, *flashTestBuf, *(flashTestBuf+1));
 				
 				
-			  if((*flashTestBuf == GPRS_NTPFAIL_TRY_SECOND) && (g_oldNumInFlash == 0)){
-				  printf("correct the time \r\n");
-					shiftTimeInGprsBuf(flashTestBuf, g_diffTime);
-			  }
+			      if((*flashTestBuf == GPRS_NTPFAIL_TRY_SECOND) && (g_oldNumInFlash == 0)){
+				      printf("correct the time \r\n");
+					    shiftTimeInGprsBuf(flashTestBuf, g_diffTime);
+			      }
 										
-				*flashTestBuf = 0x55;
+				    *flashTestBuf = 0x55;
 					
-				  if(ret == 0){
-				    aterr = sim800c_gprs_tcp(flashTestBuf, 100);
-						printf("tcp send return %04x \r\n", aterr);
-					  if(aterr != AT_FAIL && aterr != AT_SERVER_RES_TIMEOUT){
-				      updateFlashInfo(infoAddr, infoContent);
-							if(num > 1){
-							  postGprsSendSaveDataMessage();
-							}else{
-							  printf("it is the last data in flash \r\n");
-							}
-							if(g_oldNumInFlash > 0){
-							  g_oldNumInFlash--;
-							}
+				    if(ret == 0){
+				      aterr = sim800c_gprs_tcp(flashTestBuf, 100);
+						  printf("tcp send return %04x \r\n", aterr);
+					    if(aterr != AT_FAIL && aterr != AT_SERVER_RES_TIMEOUT){
+							  OSMutexPend (&FLASH_MUTEX,0,OS_OPT_PEND_BLOCKING,0,&err);
+				        updateFlashInfo(infoAddr, infoContent);
+							  OSMutexPost(&FLASH_MUTEX,OS_OPT_POST_NONE,&err);
+							  LED0 = 1;
+					      LED1 = 1;
+					      OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					      LED0 = 0;
+					      LED1 = 0;
+					      OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					      LED0 = 1;
+					      LED1 = 1;
 							
-				    }else{
-						  //OSTmrStart(&tmr_loopsend, &err);
-							printf("send save data fail, do not try again ,for test only \r\n");
-							break;
-						}
-				  }
-					
-			  //}
-				OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)flashTestBuf, (OS_ERR*)&err);
+							  if(num > 1){
+							    postGprsSendSaveDataMessage();
+							  }else{
+							    printf("it is the last data in flash \r\n");
+							  }
+							  if(g_oldNumInFlash > 0){
+							    g_oldNumInFlash--;
+							  }
+							
+				      }else{
+							  LED0 = 1;
+					      OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					      LED0 = 0;
+					      OSTimeDlyHMSM(0,0,0,200,OS_OPT_TIME_PERIODIC,&err);
+					      LED0 = 1;
+						    OSTmrStart(&tmr_loopsend, &err);
+							  printf("send save data fail, 10s try again \r\n");
+							  //break;
+						  }
+				    }
+					  
+			  
+				    OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)flashTestBuf, (OS_ERR*)&err);
+				  }else{
+					  printf("fail to get buf when readfromflash \r\n");
+					}
+				}
+				OSMemPut((OS_MEM*	)&MESSAGE_MEM, (void*)pMsg, (OS_ERR*)&err);
 				break;
 			}
-			
+			default:{
+			   break;
+			}
 		}
 		
   }
 	
 	OSMemPut((OS_MEM*	)&INTERNAL_MEM,(void*	)buf,(OS_ERR* )&err);
 }
+
+
+void stopAutoTest(void)
+{
+	OS_ERR err;
+  OSTmrStop(&tmr1,OS_OPT_TMR_NONE,0,&err);
+	testFlag = 3;
+	while(1){
+	  LED0 = 1;
+		OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
+    LED1 = 1;
+	  OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
+		LED0 = 0;
+		OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
+		LED1 = 0;
+	  OSTimeDlyHMSM(0,0,1,0,OS_OPT_TIME_PERIODIC,&err);
+	}
+}
+
+
+u8 increaseCntAtFlash(void)
+{
+	u16 i= 0,offset,index = 0, countLen = (GPRS_SAVE_COUNT_END_ADDR - GPRS_SAVE_COUNT_START_ADDR);
+	u8 counttemp[4];
+	u8 flashOpRet = 0;
+	u16 countNum = 0;
+	u8 datatemp[INFO_TRUNK_SIZE];
+	u16 *ptr;
+	u8* countSaveAddr;
+	u8 countCheckTemp[4];
+	CPU_SR_ALLOC();
+	
+	while(i < countLen){
+	  ptr = (u16*)datatemp;
+		OS_CRITICAL_ENTER();
+		STMFLASH_Read(GPRS_SAVE_COUNT_START_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
+		OS_CRITICAL_EXIT();
+		//printf("@@@ read info offset %d \r\n", i);
+		offset = (u32)ptr - (u32)datatemp;
+		while( offset < INFO_TRUNK_SIZE){
+			
+		  if(*ptr == 0xFFFF){
+			  printf("@@@ meet blank bytes %d \r\n", offset);
+			  break;
+			}else{
+			  //printf("@@@ new index %04x\r\n", *ptr);
+			}
+		
+			if(index <= *ptr){
+			  index = *ptr;
+				countSaveAddr = (u8 *)(GPRS_SAVE_COUNT_START_ADDR + i + offset);
+				memcpy(counttemp, (u8 *)ptr, 4);
+				//printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
+			}
+			
+			if(*(ptr+1) == 0xFFFF ){
+			  printf("info data corrupt");
+			}
+			
+			ptr += 2;
+			offset += 4;
+		}
+		
+		if(*ptr == 0xFFFF){
+			printf("@@@ meet blank, end \r\n");
+		  break;
+		}
+		
+		if(index == 0xFFFE){
+		  break;
+		}
+		
+		i += INFO_TRUNK_SIZE;
+	}
+	
+	if(index == 0){
+		//It is the 1st to write a record
+		countNum = 0;
+		countSaveAddr = (u8 *)GPRS_SAVE_COUNT_START_ADDR;
+	}else{
+	  countNum = *((u16 *)counttemp + 1);
+	}
+	
+	if(index < 0xFFFE){
+      *((u16*)counttemp) = index + 1;
+  }else{
+			*((u16*)counttemp) = 1;
+  }
+	
+  if(countNum < 0xFFFE){
+      *((u16*)counttemp+1) = countNum + 1;
+  }else{
+			*((u16*)counttemp+1) = 1;
+  }
+			
+  if(index != 0){
+    countSaveAddr += 4;
+  }else{
+		printf("@1st record, not increase \r\n");
+	}
+			
+  if((u32)countSaveAddr >= GPRS_SAVE_COUNT_END_ADDR){
+	  countSaveAddr = (u8 *)GPRS_SAVE_COUNT_START_ADDR;
+  }
+	
+	
+	i = 3;
+	
+	while(i > 0){
+			  
+    if((u32)countSaveAddr == GPRS_SAVE_COUNT_START_ADDR){
+      STMFLASH_ErasePage(GPRS_SAVE_COUNT_START_ADDR);
+	  }
+					
+		flashOpRet = STMFLASH_Write((u32)countSaveAddr,(u16*)counttemp,2);
+		
+		if(flashOpRet == 0){
+		  STMFLASH_Read((u32)countSaveAddr, (u16*)countCheckTemp,4);
+		  if(countCheckTemp[0] != counttemp[0] && countCheckTemp[2] != counttemp[2]){
+			  printf("countCheckTemp-> %02x, %02x, %02x, %02x\r\n",
+		    countCheckTemp[0], countCheckTemp[1],countCheckTemp[2], countCheckTemp[3]);
+				flashOpRet = 6;
+		  }else{
+			  printf("count write and read ok\r\n");
+			}
+      break;
+    }else {
+      printf("try again \r\n");
+    }
+				//if(recordNum == 20){
+			  //   infoSaveAddr += 8;
+			  //}
+		i--;
+  }
+	return flashOpRet;
+}
+
+u16 getCountFromFlash(void)
+{
+	u16 i= 0,offset,index = 0, countLen = (GPRS_SAVE_COUNT_END_ADDR - GPRS_SAVE_COUNT_START_ADDR);
+	u8 counttemp[4];
+	u16 countNum = 0;
+	u8 datatemp[INFO_TRUNK_SIZE];
+	u16 *ptr;
+	CPU_SR_ALLOC();
+	
+	while(i < countLen){
+	  ptr = (u16*)datatemp;
+		OS_CRITICAL_ENTER();
+		STMFLASH_Read(GPRS_SAVE_COUNT_START_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
+		OS_CRITICAL_EXIT();
+		//printf("@@@ read info offset %d \r\n", i);
+		offset = (u32)ptr - (u32)datatemp;
+		while( offset < INFO_TRUNK_SIZE){
+			
+		  if(*ptr == 0xFFFF){
+			  printf("@@@ meet blank bytes %d \r\n", offset);
+			  break;
+			}else{
+			  //printf("@@@ new index %04x\r\n", *ptr);
+			}
+		
+			if(index <= *ptr){
+			  index = *ptr;
+				memcpy(counttemp, (u8 *)ptr, 4);
+				//printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
+			}
+			
+			if(*(ptr+1) == 0xFFFF ){
+			  printf("info data corrupt");
+			}
+			
+			ptr += 2;
+			offset += 4;
+		}
+		
+		if(*ptr == 0xFFFF){
+			printf("@@@ meet blank, end \r\n");
+		  break;
+		}
+		
+		if(index == 0xFFFE){
+		  break;
+		}
+		
+		i += INFO_TRUNK_SIZE;
+	}
+	
+	if(index == 0){
+		//It is the 1st to write a record
+		countNum = 0;
+	}else{
+	  countNum = *((u16 *)counttemp + 1);
+	}
+				
+  return countNum;
+}
+
 
 
 u8 saveToFlash(u8* pBuf)
@@ -596,18 +917,20 @@ u8 saveToFlash(u8* pBuf)
 	u8* saveAddr;
 	u8* infoSaveAddr;
 	u8 recordNum = 0;
+	u8 flashOpRet = 0;
+	u16 infoLen = (GRPS_SAVE_INFO_END_ADDR - GPRS_SAVE_INFO_START_ADDR);
 	CPU_SR_ALLOC();
 	
 	printf("@@@ saveToFlash ... \r\n");
   //Find the biggst index, util meet the 0xFFFF(blank area) or 0xFFFE(max index)
 	//If index is 0xFFFE, we must erase whole page, start with 1;
 	//If index is 0, only happen no record before or all record is clean when info corrupt is detected
-  while(i < STM_SECTOR_SIZE){
+  while(i < infoLen){
 	  ptr = (u16*)datatemp;
 		OS_CRITICAL_ENTER();
-		STMFLASH_Read(GPRS_SAVE_INFO_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
+		STMFLASH_Read(GPRS_SAVE_INFO_START_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
 		OS_CRITICAL_EXIT();
-		printf("@@@ read info offset %d \r\n", i);
+		//printf("@@@ read info offset %d \r\n", i);
 		offset = (u32)ptr - (u32)datatemp;
 		while( offset < INFO_TRUNK_SIZE){
 			
@@ -615,14 +938,14 @@ u8 saveToFlash(u8* pBuf)
 			  printf("@@@ meet blank bytes %d \r\n", offset);
 			  break;
 			}else{
-			  printf("@@@ new index %04x\r\n", *ptr);
+			  //printf("@@@ new index %04x\r\n", *ptr);
 			}
 		
-			if(index < *ptr){
+			if(index <= *ptr){
 			  index = *ptr;
-				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_ADDR + i + offset);
+				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_START_ADDR + i + offset);
 				memcpy(infotemp, (u8 *)ptr, 8);
-				printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
+				//printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
 			}
 			
 			if((*(ptr+1) == 0xFFFF) || (*(ptr+2) == 0xFFFF) || (*(ptr+3) == 0xFFFF) ){
@@ -645,10 +968,10 @@ u8 saveToFlash(u8* pBuf)
 		i += INFO_TRUNK_SIZE;
 	}
 	
-	printf("@@@ index %d \r\n", index);
+	printf("@@@ index %d , infoSaveAddr %08x\r\n", index, (u32)infoSaveAddr);
 	if(index == 0){
 		//It is the 1st to write a record
-		infoSaveAddr = (u8 *)GPRS_SAVE_INFO_ADDR;
+		infoSaveAddr = (u8 *)GPRS_SAVE_INFO_START_ADDR;
 	  saveAddr = (u8 *)GRPS_SAVE_START_ADDR;
 		
 		recordNum = 0;
@@ -695,23 +1018,21 @@ u8 saveToFlash(u8* pBuf)
 	{
 		u32 writeAddr = (u32)saveAddr + recordNum*100;
 		
-		
-
 		OS_CRITICAL_ENTER();
 		
 		if(((u32)writeAddr+100) < GPRS_SAVE_END_ADDR){
 			printf("@@@ writeAddr %x \r\n", writeAddr);
-			STMFLASH_Write((u32)writeAddr,(u16*)pBuf,100);
+			flashOpRet = STMFLASH_Write((u32)writeAddr,(u16*)pBuf,50);
 		}else if((u32)writeAddr < GPRS_SAVE_END_ADDR){
 		  u16 left = GPRS_SAVE_END_ADDR - (u32)writeAddr;
-			printf("@@@ should no be here !!! \r\n");
-			STMFLASH_Write((u32)writeAddr,(u16*)pBuf,left/2);
-			STMFLASH_Write(GRPS_SAVE_START_ADDR,(u16*)pBuf+left,(100 - left)/2);
+			printf("@@@ should not be here !!! \r\n");
+			flashOpRet = STMFLASH_Write((u32)writeAddr,(u16*)pBuf,left/2);
+			flashOpRet = STMFLASH_Write(GRPS_SAVE_START_ADDR,(u16*)(pBuf+left),(100 - left)/2);
 		
 		}else if((u32)writeAddr >= GPRS_SAVE_END_ADDR){
 			u32 newAddr = (u32)writeAddr - GPRS_SAVE_END_ADDR + GRPS_SAVE_START_ADDR;
-			printf("@@@ should no be here !!!! \r\n");
-			STMFLASH_Write(newAddr,(u16*)pBuf,50);
+			//printf("@@@ should no be here !!!! \r\n");
+			flashOpRet = STMFLASH_Write(newAddr,(u16*)pBuf,50);
 		}else{
 		  printf("!!! can not be here %x \r\n", (u32)writeAddr);
 		}
@@ -725,14 +1046,14 @@ u8 saveToFlash(u8* pBuf)
 	  infotemp[2] = recordNum+1;
 		*((u32*)(&infotemp[4])) = (u32)saveAddr;
 		
-    if(index != 0){		
+    if(index != 0){
        infoSaveAddr += 8;
 		}else{
 		   printf("@1st record, not increase \r\n");
 		}
 			
-    if((u32)infoSaveAddr >= GRPS_SAVE_START_ADDR){
-		  infoSaveAddr = (u8 *)GPRS_SAVE_INFO_ADDR;
+    if((u32)infoSaveAddr >= GRPS_SAVE_INFO_END_ADDR){
+		  infoSaveAddr = (u8 *)GPRS_SAVE_INFO_START_ADDR;
 		}
 		
 		flashInfoXorFill(infotemp);
@@ -740,19 +1061,61 @@ u8 saveToFlash(u8* pBuf)
     printf("info addr %08x, data addr %08x , info-> %02x, %02x \r\n ", (u32)infoSaveAddr, (u32)saveAddr, infotemp[0], infotemp[1]);
 		printf("info-> %02x, %02x, %02x, %02x, %02x,%02x\r\n", infotemp[2], infotemp[3],infotemp[4], infotemp[5],infotemp[6], infotemp[7]);
 		
-		STMFLASH_Write((u32)infoSaveAddr,(u16*)infotemp,4);
 		
-		STMFLASH_Read((u32)infoSaveAddr, (u16*)infoCheckTemp,4);
+		if(flashOpRet == 0){
+		  int j = 3;
+			while(j > 0){
+			  
+			  if((u32)infoSaveAddr == GPRS_SAVE_INFO_START_ADDR){
+	        STMFLASH_ErasePage(GPRS_SAVE_INFO_START_ADDR);
+	      }
+					
+		    flashOpRet = STMFLASH_Write((u32)infoSaveAddr,(u16*)infotemp,4);
 		
-		printf("infoCheckTemp-> %02x, %02x, %02x, %02x, %02x,%02x\r\n", infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5]);
+			  if(flashOpRet == 0){
+		       STMFLASH_Read((u32)infoSaveAddr, (u16*)infoCheckTemp,4);
+				   if(infoCheckTemp[0] != infotemp[0] && infoCheckTemp[3] != infotemp[3]){
+						 printf("infoCheckTemp-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+		         infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
+				     flashOpRet = 6;
+				   }
+					 break;
+			  }else {
+			    printf("try again \r\n");
+			  }
+				//if(recordNum == 20){
+			  //   infoSaveAddr += 8;
+			  //}
+				j--;
+		  }
+		}
+    /*
+		printf("infoCheckTemp-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+		  infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
 		
+		if(infoCheckTemp[0] != infotemp[0]){
+		  STMFLASH_Read((u32)infoSaveAddr-8, (u16*)infoCheckTemp,4);
+			printf("infoCheckTemp - 8-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+			  infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
+			STMFLASH_Read((u32)infoSaveAddr+8, (u16*)infoCheckTemp,4);
+			printf("infoCheckTemp + 8-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+			  infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
+		}else{
+		  STMFLASH_Read((u32)infoSaveAddr-8, (u16*)infoCheckTemp,4);
+			printf("infoCheckTemp - 8-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+			  infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
+			STMFLASH_Read((u32)infoSaveAddr+8, (u16*)infoCheckTemp,4);
+			printf("infoCheckTemp + 8-> %02x, %02x, %02x, %02x, %02x, %02x, %02x, %02x\r\n",
+			  infoCheckTemp[0], infoCheckTemp[1],infoCheckTemp[2], infoCheckTemp[3],infoCheckTemp[4], infoCheckTemp[5], infoCheckTemp[6], infoCheckTemp[7]);
+		}
+		*/
 		OS_CRITICAL_EXIT();
 	}
 	
 	//To Do we'd better read and check
 	
 	
-	return 0;
+	return flashOpRet;
 }
 
 
@@ -764,6 +1127,7 @@ u8 getNumInFlash(u8 *savedNum) {
 	u8* saveAddr;
 	u8* infoSaveAddr;
 	u8 recordNum = 0;
+	u16 infoLen = (GRPS_SAVE_INFO_END_ADDR - GPRS_SAVE_INFO_START_ADDR);
 	CPU_SR_ALLOC();
 	
 	printf("@@@ getNumInFlash ... \r\n");
@@ -771,12 +1135,12 @@ u8 getNumInFlash(u8 *savedNum) {
 	//Find the biggst index, util meet the 0xFFFF(blank area) or 0xFFFE(max index)
 	//If index is 0xFFFE, we must erase whole page, start with 1;
 	//If index is 0, only happen no record before or all record is clean when info corrupt is detected
-  while(i < STM_SECTOR_SIZE){
+  while(i < infoLen){
 	  ptr = (u16*)datatemp;
 		OS_CRITICAL_ENTER();
-		STMFLASH_Read(GPRS_SAVE_INFO_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
+		STMFLASH_Read(GPRS_SAVE_INFO_START_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
 		OS_CRITICAL_EXIT();
-		printf("@@@ read info offset %d \r\n",i);
+		//printf("@@@ read info offset %d \r\n",i);
 		offset = (u32)ptr - (u32)datatemp;
 		while(offset < INFO_TRUNK_SIZE){
 			
@@ -785,11 +1149,11 @@ u8 getNumInFlash(u8 *savedNum) {
 			  break;
 			}
 		
-			if(index < *ptr){
+			if(index <= *ptr){
 			  index = *ptr;
-				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_ADDR + i + offset);
+				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_START_ADDR + i + offset);
 				memcpy(infotemp, (u8 *)ptr, 8);
-				printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
+				//printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
 			}
 			
 			if((*(ptr+1) == 0xFFFF) || (*(ptr+2) == 0xFFFF) || (*(ptr+3) == 0xFFFF) ){
@@ -811,7 +1175,7 @@ u8 getNumInFlash(u8 *savedNum) {
 		i += INFO_TRUNK_SIZE;
 	}
 	
-	printf("@@@ index %d \r\n", index);
+	printf("@@@ index %d infoSaveAddr %08x \r\n", index, (u32)infoSaveAddr);
 	if(index == 0){
 		//No record is found
 		printf("@@@ no record is found \r\n");
@@ -823,7 +1187,7 @@ u8 getNumInFlash(u8 *savedNum) {
 			 printf("@@@ addr %x, record num %d \r\n", (u32)saveAddr, recordNum);
 			 if(recordNum == 0){
 				 printf("@@@ record is empty \r\n");
-			   return 1;
+			   return 0;
 			 }
 		}else {
 			//To Do
@@ -860,6 +1224,7 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 	u8* saveAddr;
 	u8* infoSaveAddr;
 	u8 recordNum = 0;
+	u16 infoLen = (GRPS_SAVE_INFO_END_ADDR - GPRS_SAVE_INFO_START_ADDR);
 	CPU_SR_ALLOC();
 	
 	printf("@@@ readFromFlash ... \r\n");
@@ -867,12 +1232,12 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 	//Find the biggst index, util meet the 0xFFFF(blank area) or 0xFFFE(max index)
 	//If index is 0xFFFE, we must erase whole page, start with 1;
 	//If index is 0, only happen no record before or all record is clean when info corrupt is detected
-  while(i < STM_SECTOR_SIZE){
+  while(i < infoLen){
 	  ptr = (u16*)datatemp;
 		OS_CRITICAL_ENTER();
-		STMFLASH_Read(GPRS_SAVE_INFO_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
+		STMFLASH_Read(GPRS_SAVE_INFO_START_ADDR+i, ptr,INFO_TRUNK_SIZE/2);
 		OS_CRITICAL_EXIT();
-		printf("@@@ read info offset %d \r\n",i);
+		//printf("@@@ read info offset %d \r\n",i);
 		offset = (u32)ptr - (u32)datatemp;
 		while(offset < INFO_TRUNK_SIZE){
 			
@@ -881,11 +1246,11 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 			  break;
 			}
 		
-			if(index < *ptr){
+			if(index <= *ptr){
 			  index = *ptr;
-				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_ADDR + i + offset);
+				infoSaveAddr = (u8 *)(GPRS_SAVE_INFO_START_ADDR + i + offset);
 				memcpy(infotemp, (u8 *)ptr, 8);
-				printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
+				//printf("@@@ bigger index %x, ptr %x \r\n", index, (u32)infoSaveAddr);
 			}
 			
 			if((*(ptr+1) == 0xFFFF) || (*(ptr+2) == 0xFFFF) || (*(ptr+3) == 0xFFFF) ){
@@ -907,7 +1272,7 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 		i += INFO_TRUNK_SIZE;
 	}
 	
-	printf("@@@ index %d \r\n", index);
+	printf("@@@ index %d infoSaveAddr %08x \r\n", index, (u32)infoSaveAddr);
 	if(index == 0){
 		//No record is found
 		printf("@@@ no record is found \r\n");
@@ -924,6 +1289,7 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 		}else {
 			//To Do
 			//erase info page
+			printf("**** info xor error\r\n");
 		  return 2;
 		}
 	}
@@ -952,6 +1318,7 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 		
 		STMFLASH_Read(GRPS_SAVE_START_ADDR, (u16*)pBuf+left, 50-left);
 	}
+	OS_CRITICAL_EXIT();
 	
 	if(index < 0xFFFE){
     *((u16*)infotemp) = index + 1;
@@ -971,8 +1338,8 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
 			
   infoSaveAddr += 8;
 			
-  if((u32)infoSaveAddr >= GRPS_SAVE_START_ADDR){
-    infoSaveAddr = (u8 *)GPRS_SAVE_INFO_ADDR;
+  if((u32)infoSaveAddr >= GRPS_SAVE_INFO_END_ADDR){
+    infoSaveAddr = (u8 *)GPRS_SAVE_INFO_START_ADDR;
 	}
 		
   flashInfoXorFill(infotemp);
@@ -980,9 +1347,7 @@ u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent ){
   *infoAddr	 = (u32)infoSaveAddr;
 	memcpy(infoContent, infotemp, 8);
 	//STMFLASH_Write((u32)infoSaveAddr,(u16*)infotemp,4);
-	
-	OS_CRITICAL_EXIT();
-	
+		
 	printf("@@@ not save info addr %08x, data addr %08x , info-> %02x, %02x \r\n ", (u32)infoSaveAddr, (u32)saveAddr, infotemp[0], infotemp[1]);
 	printf("@@@ info-> %02x, %02x, %02x, %02x, %02x,%02x\r\n", infotemp[2], infotemp[3],infotemp[4], infotemp[5],infotemp[6], infotemp[7]);
 	
@@ -997,6 +1362,10 @@ u8 updateFlashInfo(u32 infoAddr, u8 *infoContent){
 	printf("@@@ info addr %08x, info-> %02x, %02x \r\n ", (u32)infoAddr, infoContent[0], infoContent[1]);
 	printf("@@@ info-> %02x, %02x, %02x, %02x, %02x,%02x\r\n", infoContent[2], infoContent[3],infoContent[4], infoContent[5],infoContent[6], infoContent[7]);
   OS_CRITICAL_ENTER();
+	
+	if(infoAddr == GPRS_SAVE_INFO_START_ADDR){
+	  STMFLASH_ErasePage(GPRS_SAVE_INFO_START_ADDR);
+	}
 	
   STMFLASH_Write(infoAddr,(u16*)infoContent,4);
 	
@@ -1110,6 +1479,7 @@ void postGprsSendMessage(u8 **pBuf){
                     (OS_OPT		)OS_OPT_POST_FIFO,
 					(OS_ERR*	)&err);
 		if(err != OS_ERR_NONE){
+			printf("postGprsSendMessage fail %d \r\n", err);
 		  OSMemPut((OS_MEM*	)&GPRS_MEM, (void*)(*pBuf), (OS_ERR*)&err);
 		}else{
 			printf("post GPRS send message \r\n");
@@ -1120,6 +1490,17 @@ void postGprsSendMessage(u8 **pBuf){
 void postGprsSendSaveDataMessage(void){
 	OS_ERR err;
 	u8 *pbuf;
+	
+	
+	g_loopSendMsgNum++;
+	
+	if(g_loopSendMsgNum > 1){
+		 printf(" g_loopSendMsgNum %d > 1, do not post again\r\n", g_loopSendMsgNum);
+	   g_loopSendMsgNum--;
+		 return;
+	}
+						  
+	
 	pbuf = OSMemGet((OS_MEM*)&MESSAGE_MEM, (OS_ERR*)&err);
 	
 	if(pbuf){
@@ -1135,6 +1516,8 @@ void postGprsSendSaveDataMessage(void){
 			printf("post GPRS send message \r\n");
 	  }
 	}
+	
+	
 }
 
 void postKeyEvent(u8 keynum){
@@ -1213,8 +1596,9 @@ int main(void)
 	delay_init();       //延时初始化
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //中断分组配置
 	LED_Init();         //LED初始化
-	LED0 = 1;
-	LED1 = 1;
+	LED0 = 0;
+	LED1 = 0;
+	SIM800Power = 0;
 	uart_init(115200);    //串口波特率设置
 	//KEY_Init();
 	EXTIX_Init();
@@ -1290,10 +1674,11 @@ void start_task(void *p_arg)
 	
 	OS_CRITICAL_ENTER();	//进入临界区
 	
-	OSMutexCreate((OS_MUTEX*	)&NTP_MUTEX,
-				  (CPU_CHAR*	)"NTP_MUTEX",
+	OSMutexCreate((OS_MUTEX*	)&FLASH_MUTEX,
+				  (CPU_CHAR*	)"FLASH_MUTEX",
                   (OS_ERR*		)&err);
 									
+	
 	OSFlagCreate((OS_FLAG_GRP*)&KeyEventFlags,		//指向事件标志组
                  (CPU_CHAR*	  )"Key Event Flags",	//名字
                  (OS_FLAGS	  )KEYFLAGS_VALUE,	//事件标志组初始值
@@ -1301,7 +1686,7 @@ void start_task(void *p_arg)
 								 
 	OSTmrCreate((OS_TMR		*)&tmr_ntp,		//定时器1
                 (CPU_CHAR	*)"tmr ntp",		//定时器名字
-                (OS_TICK	 )1000,			//1000* 10 =10s
+                (OS_TICK	 )2000,			//2000* 10 =20s
                 (OS_TICK	 )0,          //
                 (OS_OPT		 )OS_OPT_TMR_ONE_SHOT,
                 (OS_TMR_CALLBACK_PTR)tmr_ntp_callback,//定时器1回调函数
@@ -1310,7 +1695,7 @@ void start_task(void *p_arg)
 
 	OSTmrCreate((OS_TMR		*)&tmr_loopsend,		//
                 (CPU_CHAR	*)"time loopsend",
-                (OS_TICK	 )500,			//500* 10 =5s
+                (OS_TICK	 )1000,			//1000* 10 =10s
                 (OS_TICK	 )0,          //
                 (OS_OPT		 )OS_OPT_TMR_ONE_SHOT,
                 (OS_TMR_CALLBACK_PTR)tmr_loopsend_callback,//定时器1回调函数
@@ -1329,7 +1714,7 @@ void start_task(void *p_arg)
 */
 	OSTmrCreate((OS_TMR		*)&tmr1,		//定时器1
                 (CPU_CHAR	*)"tmr1",		//定时器名字
-                (OS_TICK	 )1000,			//0ms
+                (OS_TICK	 )6000,			//0ms
                 (OS_TICK	 )0,        
                 (OS_OPT		 )OS_OPT_TMR_ONE_SHOT,
                 (OS_TMR_CALLBACK_PTR)tmr1_callback,//定时器1回调函数
@@ -1373,7 +1758,7 @@ void start_task(void *p_arg)
                  (CPU_STK   * )&MODEM_TASK_STK[0],	
                  (CPU_STK_SIZE)MODEM_STK_SIZE/10,	
                  (CPU_STK_SIZE)MODEM_STK_SIZE,		
-                 (OS_MSG_QTY  )TASK_Q_NUM,					
+                 (OS_MSG_QTY  )MODEMTASK_Q_NUM,					
                  (OS_TICK	  )0,					
                  (void   	* )0,				
                  (OS_OPT      )OS_OPT_TASK_STK_CHK|OS_OPT_TASK_STK_CLR, 

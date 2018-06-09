@@ -201,12 +201,13 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	}
 	
 		
-	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
-	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
+	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
 	  printf("connect fail \r\n");
-    return AT_FAIL;
+    ret = AT_FAIL;
+		goto end;
 	}else {
-	  printf("connect ok\r\n");
+	  printf("connect huxiweishi.3322.org : 5414 ok\r\n");
 	}
 	
 	if(sim800c_send_cmd("AT+CIPSTATUS","CONNECT OK",500) == 0){
@@ -236,7 +237,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		
 		USART2_RX_STA = 0;
 		
-    while((i < SERVER_RES_LEN) && (count < 500)){
+    while((i < SERVER_RES_LEN) && (count < 1000)){
 	    if(USART2_RX_STA & 0x8000){
 		    p1 = USART2_RX_BUF;
 			  length = USART2_RX_STA&0x7FFF;
@@ -609,37 +610,27 @@ u8 ntp_update(void)
 	 }
 	 //sim800c_send_cmd("AT+CNTP=\"202.120.2.101\",32","OK",200);     //设置NTP服务器和本地时区(32时区 时间最准确)
 	 
-	 if(sim800c_send_cmd("AT+CNTP=\"202.108.6.95\",8","OK",800)){
-	   printf("ntp fail step 5 \r\n");
+	 if(sim800c_send_cmd("AT+CNTP=\"cn.ntp.org.cn\",8","OK",800)){
+	   printf("ntp fail step 5 cn.ntp.org.cn \r\n");
 		 //return 5;
 		 ret = 5;
 		 goto end;
 	 }else{
-	   printf("ntp step 5 ok，china 202.108.6.95\r\n");
+	   printf("ntp step 5 ok，china cn.ntp.org.cn\r\n");
 	 }
 	 
    if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
 	   printf("ntp fail step 6, try another ntp server \r\n");
 		 
-		 if(sim800c_send_cmd("AT+CNTP=\"120.25.108.11\",8","OK",800)){
+		 if(sim800c_send_cmd("AT+CNTP=\"edu.ntp.org.cn\",8","OK",800)){
 			 ret =6;
 			 goto end;
 		 }else{
 		   if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
 			   ret = 6;
-				 if(sim800c_send_cmd("AT+CNTP=\"202.112.29.82\",8","OK",800)){
-			     ret =6;
-			     goto end;
-		     }else{
-		       if(sim800c_send_cmd("AT+CNTP","+CNTP: 1",800)){
-			       ret = 6;
-				     goto end;
-			     }else{
-					    printf("ntp 3rd try china edu 202.112.29.82 ok \r\n");
-					 }
-				 }
+         goto end;
 			 }else{
-			   printf("ntp 2nd try 120.25.108.11\r\n");
+			   printf("ntp 2nd try edu.ntp.org.cn ok\r\n");
 			 }
 		 }
 	 }else{

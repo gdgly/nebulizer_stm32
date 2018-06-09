@@ -23,6 +23,7 @@
 #define KEY0  GPIO_ReadInputDataBit(GPIOC,GPIO_Pin_5)//读取按键0
 #define KEY1  GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_15)//读取按键1
 #define WK_UP   GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0)//读取按键2 
+#define INT_DETECT   GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_7)//读取按键2 
  
 
 #define KEY0_PRES	1		//KEY0  

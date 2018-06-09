@@ -31,8 +31,8 @@
 #define NEXT_CELL_OFFSET    82
 #define VERIFY_OFFSET       99
 
-#define TASK_Q_NUM	8	
-
+#define TASK_Q_NUM	      8	
+#define MODEMTASK_Q_NUM	  10	
 
 void postKeyEvent(u8 keynum);
 void postTimerMessage(u8 timer_num);
@@ -48,4 +48,7 @@ u8 getNumInFlash(u8 *savedNum);
 u8 updateFlashInfo(u32 infoAddr, u8 *infoContent);
 u8 saveToFlash(u8* pBuf);
 void postGprsSendSaveDataMessage(void);
+void stopAutoTest(void);
+u16 getCountFromFlash(void);
+u8 increaseCntAtFlash(void);
 #endif
