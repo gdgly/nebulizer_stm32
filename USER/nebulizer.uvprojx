@@ -363,7 +363,7 @@
             <useXO>0</useXO>
             <VariousControls>
               <MiscControls></MiscControls>
-              <Define>STM32F10X_HD,USE_STDPERIPH_DRIVER</Define>
+              <Define>STM32F10X_HD,USE_STDPERIPH_DRIVER,PROTOCOL_V15</Define>
               <Undefine></Undefine>
               <IncludePath>..\USER;..\CORE;..\SYSTEM\delay;..\SYSTEM\sys;..\USER;..\SYSTEM\usart;..\FWLIB\STM32F10x_FWLib\inc;..\HARDWARE\LED;..\HARDWARE\KEY;..\HARDWARE\EXTI;..\HARDWARE\RTC;..\HARDWARE\USART2;..\HARDWARE\STMFLASH;..\MALLOC;..\SIM800C;..\UCOSIII\uC-CPU;..\UCOSIII\uC-LIB;..\UCOSIII\uCOS-III;..\UCOSIII\UCOS_BSP;..\UCOSIII\uCOS_CONFIG;..\UCOSIII\uCOS-III\Source;..\UCOSIII\uC-CPU\ARM-Cortex-M3\RealView;..\UCOSIII\uC-LIB\Ports\ARM-Cortex-M3\RealView;..\UCOSIII\uCOS-III\Ports\ARM-Cortex-M3\Generic\RealView</IncludePath>
             </VariousControls>

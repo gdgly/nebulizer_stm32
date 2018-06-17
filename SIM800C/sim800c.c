@@ -157,6 +157,84 @@ void sim800c_unigbk_exchange(u8 *src,u8 *dst,u8 mode)
 //用于测试TCP/UDP连接
 //返回值:0,正常
 //其他,错误代码
+
+SIM800_ERROR sim800c_gprs_tcp_sendonly(u8* content, u16 len)
+{
+	u8 cmd[20] = {0};
+	u8 *p1;
+	u16 count =0;
+	u8 i=0,length=0,j=0,recvFlag=0;
+	u8 recv[HB_RES_LEN+1] = {0};
+	printf("sim800c_gprs_tcp_sendonly \r\n");
+	
+	sprintf((char*)cmd,"AT+CIPSEND=%d",len); //fixed length, no need to send 0x1A
+	
+	if(sim800c_send_cmd(cmd,">",500)==0)		//发送数据
+  { 
+ 				//printf("CIPSEND DATA:%s\r\n",p1);	 			//发送数据打印到串口
+    //u2_printf("%s\r\n","fuck you again");
+		
+		u2_hexsend(content, len);
+		
+		delay_ms(50);
+
+		
+		USART2_RX_STA = 0;
+		while((i < HB_RES_LEN) && (count < 1000)){
+	    if(USART2_RX_STA & 0x8000){
+		    p1 = USART2_RX_BUF;
+			  length = USART2_RX_STA&0x7FFF;
+				printf("rece %d \r\n", length);
+				printf("%s", p1);
+			  if(recvFlag == 0){
+			    for(j=0; j<length; j++){
+			      if(*p1 == 0x55){
+						  printf("find 0x55 \r\n");
+					    break;
+				    }
+				    p1++;
+			    }
+			    if(j!=length){
+			      if((length-j) >= HB_RES_LEN){
+				      memcpy(recv,p1,HB_RES_LEN);
+						  printf("finish in 1st receive\r\n");
+						  recvFlag = 2;
+						  USART2_RX_STA = 0;
+					    break;
+				    }else{
+				      memcpy(recv, p1, length-j);
+						  recvFlag=1;
+						  i = length-j;
+						  printf("1 shot len %d, j %d, i %d \r\n", length, j, i);
+						  USART2_RX_STA = 0;
+				    }
+			    }else{
+				    printf("0x55 not in this recv \r\n");
+					  USART2_RX_STA = 0;
+				  }
+		    }else{
+				  printf("len %d, i %d \r\n", length, i);
+				  if(length >= (HB_RES_LEN-i)){
+			      memcpy(recv+i, p1, HB_RES_LEN-i);
+					  printf("rece mult finish\r\n");
+					  recvFlag = 2;
+					  USART2_RX_STA = 0;
+					  break;
+				  }else{
+					  memcpy(recv+i, p1, length);
+					  i = length+i;
+					  USART2_RX_STA = 0;
+				  }
+			  }
+			
+	    }
+			
+		  delay_ms(10);
+		  count++;//we can not wait too long, 3s at most
+    }
+	}
+}
+
 SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 {
 	u8 *p1, *p2;
@@ -201,13 +279,13 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	}
 	
 		
-	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"39084\"","CONNECT OK",3000)){
-	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5414\"","CONNECT OK",3000)){
+	//if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"19m9b15866.iok.la\",\"54991\"","CONNECT OK",3000)){
+	if(sim800c_send_cmd("AT+CIPSTART=\"TCP\",\"huxiweishi.3322.org\",\"5416\"","CONNECT OK",3000)){
 	  printf("connect fail \r\n");
     ret = AT_FAIL;
 		goto end;
 	}else {
-	  printf("connect huxiweishi.3322.org : 5414 ok\r\n");
+	  printf("connect huxiweishi.3322.org : 5416 ok\r\n");
 	}
 	
 	if(sim800c_send_cmd("AT+CIPSTATUS","CONNECT OK",500) == 0){
@@ -294,31 +372,7 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 	    ret = AT_SERVER_RES_TIMEOUT;
 		  printf("recv not complete and timeout \r\n");
 	  }else{
-	    if(recv[1] != 0xAA){
-	      ret = AT_SERVER_PREAMBLE_ERR;
-			  printf("preamble is wrong \r\n");
-	    }else{
-	      if((recv[3] != content[3]) || (recv[4] != content[4])){
-		      ret = AT_SERVER_SERIAL_NUM_ERR;
-				  printf("flow index not match %d %d\r\n", recv[3], recv[4]);
-		    }else{
-		      if(recv[5] != 0x77){
-					  printf("server find wrong data %d\r\n", recv[5]);
-			      ret = AT_SERVER_IND_NG;
-			    }else{
-			      u8 value = xorVerify(recv+2, SERVER_RES_LEN-3);
-				    if(value != recv[SERVER_RES_LEN-1]){
-				      ret = AT_SERVER_XOR_ERR;
-						  printf("xor is wrong \r\n");
-				    }else{
-							u8 time[21];
-							memcpy(time, &(recv[6]), 20);
-							time[20] = '\0';
-				      printf("recv verify pass %s\r\n", time);
-				    }
-			    }
-		    }
-	    }
+      ret = parseBootUpRes(recv, content[5], content[6]);
     }
   }else{
     sim800c_send_cmd((u8*)0X1B,0,0);	//ESC,取消发送 
@@ -326,6 +380,8 @@ SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len)
 		ret = AT_GPRS_SEND_FAIL;
 	}
 
+	return ret;
+	
 end:
 	
   printf("cipclose ...\r\n");	
@@ -349,7 +405,90 @@ end:
 	
   return ret;
 }
- 
+
+void closeGrpsConn(void)
+{
+	u8 *p1;
+	printf("try to close tcp connection\r\n");	
+	
+	if(sim800c_send_cmd("AT+CIPSTATUS","OK",500) == 0){
+    //p1=(u8*)strstr((const char*)(USART2_RX_BUF+2),"\r\n");
+		
+		//p1[0]=0;//加入结束符
+		
+		printf("IP status %s \r\n", USART2_RX_BUF);
+	}
+	
+	printf("cipclose ...\r\n");	
+  if(sim800c_send_cmd("AT+CIPCLOSE=1","CLOSE OK",2000)){
+	  printf("cip close fail \r\n");
+	}else {
+	  printf("cip close ok\r\n");
+	}
+	
+	printf("cipshutdown ...\r\n");
+  if(sim800c_send_cmd("AT+CIPSHUT","SHUT OK",1000)){
+	  printf("cip shut down fail \r\n");
+	}else{
+	  printf("cip shut down ok \r\n");
+	}
+	
+	if(sim800c_send_cmd("AT+CIPSTATUS","IP INITIAL",500) == 0){
+		delay_ms(50);
+	  printf("CIPSTATUS IP INITIAL is ok \r\n");
+	}
+
+}
+
+
+SIM800_ERROR parseBootUpRes(u8* buf, u8 indexHigh, u8 indexLow){
+  SIM800_ERROR ret;
+	u16 len = 0;
+  if(buf[1] != 0xAA){
+    ret = AT_SERVER_PREAMBLE_ERR;
+    printf("preamble is wrong \r\n");
+    return ret;
+	}
+	
+	if(buf[2] != 0x04){
+	  ret = AT_SERVER_BOOTUPTYPE_ERR;
+    printf("res package type is wrong %d\r\n", buf[2]);
+    return ret;
+	}
+	
+	len = buf[3]*256 + buf[4];
+	if(len != 45){
+	  printf("len wrong %d \r\n", len);
+	}else{
+	  printf("len is ok \r\n");
+	}
+	
+  if((buf[5] != indexHigh) || (buf[6] != indexLow)){
+    ret = AT_SERVER_SERIAL_NUM_ERR;
+    printf("flow index not match %d %d\r\n", buf[5], buf[6]);
+  }else{
+		if(buf[8] != 0x77){
+		   printf("server find wrong data %d\r\n", buf[8]);
+			 ret = AT_SERVER_IND_NG;
+	  }else{
+			 u8 value = xorVerify(buf+5, SERVER_RES_LEN-6);
+			 if(value != buf[SERVER_RES_LEN-1]){
+          ret = AT_SERVER_XOR_ERR;
+					printf("xor is wrong \r\n");
+			 }else{
+          u8 time[21];
+				  memcpy(time, &(buf[29]), 20);
+				  time[20] = '\0';
+				  printf("recv verify pass %s\r\n", time);
+			 }
+    }
+  }
+	 
+	return ret;
+	
+}
+
+
 u16 sim800c_gprs_transparentMode(u8* content, u16 len)
 {
 	u8 *p1, *p2;
@@ -772,7 +911,7 @@ u8 checkSIM800HW(void)
 
 u8 checkGPRSEnv(void){
 	u8 *p1, *p2;
-	u8 ret=1, reg, value;
+	u8 reg, value;
 	
 	value = queryCSQ();
 	
@@ -879,6 +1018,28 @@ u8 queryCSQ(){
     USART2_RX_STA=0;
 	}else{
 	  printf("queryCSQ fail \r\n");
+	}
+	
+  return value;
+}
+
+u8 queryImei(u8* imei){
+	u8 *p1;
+	u8 value = 0;
+	
+	printf("query imei ...\r\n");
+  if(sim800c_send_cmd("AT+CGSN","OK",200)==0)
+	{ 
+		p1=(u8*)strstr((const char*)(USART2_RX_BUF+2),"\r\n");
+		
+		p1[0]=0;//加入结束符
+		printf("imei %s\r\n", USART2_RX_BUF+2);
+    strcpy(imei, USART2_RX_BUF+2);
+    USART2_RX_STA=0;
+	}else{
+	  printf("queryimei fail \r\n");
+		memset(imei, 0x30, 15);
+		value = 1;
 	}
 	
   return value;

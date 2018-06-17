@@ -13,16 +13,16 @@
 
 #define GPRS_OLD_SEND_FLAG       0x44
 
-#define GPRS_NTPOK_SEND_FLAG     0x55 //must be 0x55
-#define GPRS_NTPOK_TRY_SECOND    0x56
+#define GPRS_BOOTUP_FLAG         0x55 //must be 0x55
+#define GPRS_BOOTUP_TRY_SECOND   0x56
 #define GPRS_NTPOK_TRY_THIRD     0x57
 
 
-#define GPRS_NTPFAIL_SEND_FLAG   0x65
+#define GPRS_CLOSE_FLAG          0x65
 #define GPRS_NTPFAIL_TRY_SECOND  0x66
 #define GPRS_NTPFAIL_TRY_THIRD   0x67
 
-#define GRPS_SEND_SAVEDATA_FLAG  0x60
+#define GPRS_HEART_BEAT_FLAG  0x60
 
 #define CCID_OFFSET         5
 #define STARTTIME_OFFSET    25
@@ -34,21 +34,18 @@
 #define TASK_Q_NUM	      8	
 #define MODEMTASK_Q_NUM	  10	
 
+
 void postKeyEvent(u8 keynum);
 void postTimerMessage(u8 timer_num);
-void ntpProcess(u8 *buf);
 void postRTCUpdateMessage(void);
 void postGprsSendMessage(u8**);
 u8 sim800c_gprs_transparentMode(u8* content, u16 len);
 u8 check_mainTaskMsg_queue(void);
 u8 check_modemTaskMsg_queue(void);
+void postHeartBeatMessage(void);
 
-u8 readFromFlash(u8* pBuf, u32 *infoAddr, u8 *infoContent );
-u8 getNumInFlash(u8 *savedNum);
-u8 updateFlashInfo(u32 infoAddr, u8 *infoContent);
-u8 saveToFlash(u8* pBuf);
+void postCloseGprsConnMessage(void);
 void postGprsSendSaveDataMessage(void);
 void stopAutoTest(void);
-u16 getCountFromFlash(void);
-u8 increaseCntAtFlash(void);
+
 #endif

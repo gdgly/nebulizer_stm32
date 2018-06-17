@@ -18,7 +18,8 @@
 
 #define swap16(x) (x&0XFF)<<8|(x&0XFF00)>>8	//高低字节交换宏定义
  
-#define SERVER_RES_LEN 27
+#define SERVER_RES_LEN 50
+#define HB_RES_LEN 6
 
 typedef enum
 { 
@@ -30,6 +31,7 @@ typedef enum
 	AT_SERVER_RES_TIMEOUT = 0x8001,
 	
 	AT_SERVER_PREAMBLE_ERR,
+	AT_SERVER_BOOTUPTYPE_ERR,
 	AT_SERVER_IND_NG,
 	AT_SERVER_SERIAL_NUM_ERR,
 	AT_SERVER_XOR_ERR
@@ -60,6 +62,10 @@ u8 queryCellId(u8* id, u8* neighborId);
 u8 getCCID(u8* pCcid);
 SIM800_ERROR sim800c_gprs_tcp(u8* content, u16 len);
 u8 xorVerify(u8* buf, u8 len);
+u8 queryImei(u8* imei);
+SIM800_ERROR parseBootUpRes(u8* buf, u8 indexHigh, u8 indexLow);
+void closeGrpsConn(void);
+SIM800_ERROR sim800c_gprs_tcp_sendonly(u8* content, u16 len);
 #endif
 
 
